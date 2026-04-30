@@ -768,9 +768,472 @@ git add DEPLOY.md demo/WALKTHROUGH.md docker-compose.yml
 git commit -m "docs: add deploy runbook and interview walkthrough artifacts"
 ```
 
-## Self-review checklist (completed)
+---
 
-- Spec coverage: each spec area (config, pipeline, state sync, latency, Qdrant, security, tests, deploy/docs) has at least one dedicated task.
-- Placeholder scan: no TODO/TBD/“similar to above” placeholders used.
-- Type consistency: naming is consistent across tasks (`interruptibility_percentage`, state names, latency metric naming).
+> ⚠️ **AMENDMENT — Pipecat Integration Tasks** (added after architecture review)
+> 
+> Tasks 1–11 build all the pure-logic units and frontend UI scaffolding. Tasks 12–14 wire everything
+> into a real, running voice bot using Pipecat as intended: Daily room provisioning, subprocess-spawned
+> bot process, RTVI event protocol, and `@pipecat-ai/client-js` on the frontend.
 
+---
+
+### Task 12: Pipecat bot process (`backend/bot.py`)
+
+This is the core voice pipeline. It runs as a **subprocess** per session, joining a Daily room and
+orchestrating the full STT → LLM → TTS chain with interruptibility support.
+
+**Files:**
+- Create: `backend/bot.py`
+- Create: `backend/tests/test_bot_pipeline_unit.py`
+- Modify: `backend/pyproject.toml` (add pipecat-ai deps)
+- Test: `backend/tests/test_bot_pipeline_unit.py`
+
+- [ ] **Step 1: Write the failing unit test**
+
+```python
+# backend/tests/test_bot_pipeline_unit.py
+# Unit tests for bot.py helper logic only — no live Daily/Pipecat calls
+from bot import build_system_messages, build_vad_stop_secs
+
+
+def test_build_system_messages_wraps_prompt():
+    msgs = build_system_messages("You are helpful")
+    assert msgs[0]["role"] == "system"
+    assert msgs[0]["content"] == "You are helpful"
+
+
+def test_build_vad_stop_secs_high_interruptibility():
+    # High interruptibility → shorter VAD stop (bot yields faster)
+    stop_secs = build_vad_stop_secs(interruptibility_percentage=90)
+    assert stop_secs <= 0.25
+
+
+def test_build_vad_stop_secs_low_interruptibility():
+    # Low interruptibility → longer VAD stop (bot holds the floor)
+    stop_secs = build_vad_stop_secs(interruptibility_percentage=10)
+    assert stop_secs >= 0.55
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd backend && pytest tests/test_bot_pipeline_unit.py -v`
+Expected: FAIL with `ModuleNotFoundError` for `bot`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/bot.py
+"""
+Pipecat voice bot — spawned as a subprocess by the session endpoint.
+
+Usage:
+    python bot.py --room-url <url> --token <token> --config <json>
+
+The --config JSON must match the SessionConfig schema:
+    system_prompt, llm_temperature, llm_max_tokens,
+    stt_temperature, tts_voice, tts_speed, tts_temperature,
+    interruptibility_percentage
+"""
+import argparse
+import asyncio
+import json
+import os
+
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineTask, PipelineParams
+from pipecat.processors.aggregators.openai_llm_context import (
+    OpenAILLMContext,
+    OpenAILLMContextAggregatorPair,
+)
+from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.transports.services.daily import DailyParams, DailyTransport
+
+from app.services.interruptibility import build_interruptibility_policy
+from app.services.metrics import round_trip_latency_ms
+
+
+def build_system_messages(system_prompt: str) -> list[dict]:
+    """Wrap the user-supplied prompt as an OpenAI system message."""
+    return [{"role": "system", "content": system_prompt}]
+
+
+def build_vad_stop_secs(interruptibility_percentage: int) -> float:
+    """Map interruptibility % to Silero VAD stop_secs.
+
+    High interruptibility → short stop_secs (bot yields to user quickly).
+    Low interruptibility  → long stop_secs  (bot holds the floor).
+    """
+    policy = build_interruptibility_policy(interruptibility_percentage)
+    # Map min_user_speech_ms linearly to VAD stop_secs range [0.15, 0.80]
+    # policy.min_user_speech_ms is in [100, 300] from our interruptibility service
+    clamped = max(100, min(300, policy.min_user_speech_ms))
+    return 0.15 + (clamped - 100) / 200 * 0.65  # maps 100→0.15, 300→0.80
+
+
+async def run_bot(room_url: str, token: str, config: dict) -> None:
+    transport = DailyTransport(
+        room_url,
+        token,
+        "VoiceBot",
+        DailyParams(audio_in_enabled=True, audio_out_enabled=True),
+    )
+
+    stt = DeepgramSTTService(
+        api_key=os.environ["DEEPGRAM_API_KEY"],
+    )
+
+    llm = OpenAILLMService(
+        api_key=os.environ["OPENAI_API_KEY"],
+        model="gpt-4o",
+        params=OpenAILLMService.InputParams(
+            temperature=config["llm_temperature"],
+            max_tokens=config["llm_max_tokens"],
+        ),
+    )
+
+    tts = CartesiaTTSService(
+        api_key=os.environ["CARTESIA_API_KEY"],
+        voice_id=config["tts_voice"],
+        params=CartesiaTTSService.InputParams(
+            speed=config["tts_speed"],
+        ),
+    )
+
+    context = OpenAILLMContext(
+        messages=build_system_messages(config["system_prompt"])
+    )
+
+    vad_stop_secs = build_vad_stop_secs(config["interruptibility_percentage"])
+    context_aggregator = OpenAILLMContextAggregatorPair(
+        llm,
+        context,
+        vad_analyzer=SileroVADAnalyzer(params=dict(stop_secs=vad_stop_secs)),
+    )
+
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            context_aggregator.assistant(),
+            transport.output(),
+        ]
+    )
+
+    task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
+    runner = PipelineRunner()
+    await runner.run(task)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--room-url", required=True)
+    parser.add_argument("--token", required=True)
+    parser.add_argument("--config", required=True, help="JSON-encoded SessionConfig")
+    args = parser.parse_args()
+
+    config = json.loads(args.config)
+    asyncio.run(run_bot(args.room_url, args.token, config))
+```
+
+Add pipecat-ai deps to `backend/pyproject.toml`:
+```toml
+dependencies = [
+  "fastapi>=0.95",
+  "uvicorn[standard]>=0.22",
+  "qdrant-client>=1.3",
+  "pipecat-ai[daily,deepgram,openai,cartesia,silero]>=0.0.50",
+  "aiohttp>=3.9",
+]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd backend && pytest tests/test_bot_pipeline_unit.py -v`
+Expected: PASS with 3 passed (pure unit tests, no network calls)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/bot.py backend/tests/test_bot_pipeline_unit.py backend/pyproject.toml
+git commit -m "feat: add pipecat voice bot pipeline with interruptibility and VAD"
+```
+
+---
+
+### Task 13: Upgrade session endpoint — Daily room provisioning + bot subprocess
+
+Amend `POST /api/sessions` so it actually creates a Daily room, mints tokens, spawns `bot.py` as a
+subprocess, and returns `{session_id, room_url, token}` to the frontend.
+
+**Files:**
+- Modify: `backend/app/api/sessions.py`
+- Create: `backend/app/services/daily_helper.py`
+- Create: `backend/tests/test_daily_helper.py`
+- Modify: `backend/tests/test_sessions_api.py`
+- Test: `backend/tests/test_daily_helper.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# backend/tests/test_daily_helper.py
+from unittest.mock import AsyncMock, MagicMock, patch
+from app.services.daily_helper import provision_daily_session
+
+
+async def test_provision_daily_session_returns_room_and_token():
+    mock_room = MagicMock()
+    mock_room.url = "https://example.daily.co/test-room"
+
+    with (
+        patch("app.services.daily_helper.DailyRESTHelper") as MockHelper,
+        patch("app.services.daily_helper.aiohttp.ClientSession"),
+    ):
+        helper_instance = MockHelper.return_value.__aenter__.return_value
+        helper_instance.create_room = AsyncMock(return_value=mock_room)
+        helper_instance.get_token = AsyncMock(return_value="test-token-xyz")
+
+        result = await provision_daily_session(api_key="fake-key")
+
+    assert result["room_url"] == "https://example.daily.co/test-room"
+    assert result["token"] == "test-token-xyz"
+```
+
+Also update `test_sessions_api.py` to assert response now includes `room_url` and `token`:
+```python
+def test_create_session_response_includes_room_url_and_token(mocker):
+    mocker.patch(
+        "app.api.sessions.provision_daily_session",
+        return_value={"room_url": "https://daily.co/room", "token": "tok"},
+    )
+    mocker.patch("app.api.sessions.spawn_bot_process")
+    client = TestClient(app)
+    res = client.post("/api/sessions", json=_VALID_PAYLOAD)
+    assert res.status_code == 201
+    body = res.json()
+    assert "session_id" in body
+    assert body["room_url"] == "https://daily.co/room"
+    assert body["token"] == "tok"
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd backend && pytest tests/test_daily_helper.py tests/test_sessions_api.py -v`
+Expected: FAIL with missing modules/updated contract
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/app/services/daily_helper.py
+import os
+import aiohttp
+from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams
+
+
+async def provision_daily_session(api_key: str | None = None) -> dict[str, str]:
+    """Create a Daily room and mint a bot token. Returns room_url and token."""
+    key = api_key or os.environ["DAILY_API_KEY"]
+    async with aiohttp.ClientSession() as session:
+        helper = DailyRESTHelper(daily_api_key=key, aiohttp_session=session)
+        room = await helper.create_room(DailyRoomParams())
+        token = await helper.get_token(room.url)
+    return {"room_url": room.url, "token": token}
+```
+
+```python
+# backend/app/services/bot_launcher.py
+import json
+import subprocess
+import sys
+
+
+def spawn_bot_process(room_url: str, token: str, config: dict) -> None:
+    """Fire-and-forget: spawn bot.py as a detached subprocess."""
+    subprocess.Popen(
+        [
+            sys.executable,
+            "bot.py",
+            "--room-url", room_url,
+            "--token", token,
+            "--config", json.dumps(config),
+        ],
+        # Detach so the runner process doesn't block on the bot
+        start_new_session=True,
+    )
+```
+
+Update `backend/app/api/sessions.py`:
+```python
+from uuid import uuid4
+from fastapi import APIRouter
+from app.models.config import SessionConfig
+from app.services.daily_helper import provision_daily_session
+from app.services.bot_launcher import spawn_bot_process
+
+router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+@router.post("", status_code=201)
+async def create_session(config: SessionConfig) -> dict:
+    """Provision a Daily room, spawn the Pipecat bot, return join credentials."""
+    daily = await provision_daily_session()
+    spawn_bot_process(daily["room_url"], daily["token"], config.model_dump())
+    return {
+        "session_id": str(uuid4()),
+        "room_url": daily["room_url"],
+        "token": daily["token"],
+    }
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd backend && pytest tests/test_daily_helper.py tests/test_sessions_api.py -v`
+Expected: PASS (mocked Daily calls, real schema validation)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/daily_helper.py backend/app/services/bot_launcher.py backend/app/api/sessions.py backend/tests/test_daily_helper.py backend/tests/test_sessions_api.py
+git commit -m "feat: upgrade session endpoint to provision Daily room and spawn pipecat bot"
+```
+
+---
+
+### Task 14: Frontend Daily + RTVI integration
+
+Wire the Next.js frontend to actually join the Daily room using `@pipecat-ai/client-js` and
+`@pipecat-ai/daily-transport`, subscribe to RTVI bot-state events, and drive the
+`BotStateBadge` + `LatencyPanel` with live data.
+
+**Files:**
+- Modify: `frontend/package.json` (add pipecat + daily deps)
+- Create: `frontend/src/lib/realtime/pipecat-client.ts`
+- Modify: `frontend/src/lib/state/session-store.ts`
+- Create: `frontend/src/features/session-control/__tests__/pipecat-client.test.ts`
+- Test: `frontend/src/features/session-control/__tests__/pipecat-client.test.ts`
+
+- [ ] **Step 1: Write the failing unit test**
+
+```ts
+// frontend/src/features/session-control/__tests__/pipecat-client.test.ts
+import { describe, it, expect, vi } from "vitest";
+import { createPipecatClient } from "../../../lib/realtime/pipecat-client";
+
+describe("createPipecatClient", () => {
+  it("returns a client object with connect and disconnect methods", () => {
+    const client = createPipecatClient({
+      roomUrl: "https://example.daily.co/room",
+      token: "tok",
+      onStateChange: vi.fn(),
+      onLatency: vi.fn(),
+    });
+    expect(typeof client.connect).toBe("function");
+    expect(typeof client.disconnect).toBe("function");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npm run test -- pipecat-client.test.ts`
+Expected: FAIL with missing module
+
+- [ ] **Step 3: Write minimal implementation**
+
+Add to `frontend/package.json` dependencies:
+```json
+"@pipecat-ai/client-js": "^0.3",
+"@pipecat-ai/daily-transport": "^0.3",
+"@daily-co/daily-js": "^0.64"
+```
+
+```ts
+// frontend/src/lib/realtime/pipecat-client.ts
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
+import { DailyTransport } from "@pipecat-ai/daily-transport";
+
+export type BotState = "Listening" | "Thinking" | "Speaking";
+
+export interface PipecatClientOptions {
+  roomUrl: string;
+  token: string;
+  onStateChange: (state: BotState) => void;
+  onLatency: (ms: number) => void;
+}
+
+export function createPipecatClient(opts: PipecatClientOptions) {
+  const client = new PipecatClient({
+    transport: new DailyTransport(),
+    enableMic: true,
+  });
+
+  let userSilenceAt: number | null = null;
+
+  client.on(RTVIEvent.BotStartedSpeaking, () => {
+    if (userSilenceAt != null) {
+      opts.onLatency(Date.now() - userSilenceAt);
+      userSilenceAt = null;
+    }
+    opts.onStateChange("Speaking");
+  });
+
+  client.on(RTVIEvent.BotStoppedSpeaking, () => {
+    opts.onStateChange("Listening");
+  });
+
+  client.on(RTVIEvent.UserStartedSpeaking, () => {
+    opts.onStateChange("Listening");
+  });
+
+  client.on(RTVIEvent.UserStoppedSpeaking, () => {
+    userSilenceAt = Date.now();
+    opts.onStateChange("Thinking");
+  });
+
+  return {
+    connect: () =>
+      client.connect({
+        endpoint: opts.roomUrl,
+        token: opts.token,
+      }),
+    disconnect: () => client.disconnect(),
+  };
+}
+```
+
+Update `frontend/src/lib/state/session-store.ts` to expose `botState` and `latencyMs` driven by the
+RTVI client above, consumed by `BotStateBadge` and `LatencyPanel` via React state or TanStack Query.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd frontend && npm run test -- pipecat-client.test.ts`
+Expected: PASS with 1 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/lib/realtime/pipecat-client.ts frontend/src/lib/state/session-store.ts frontend/package.json frontend/src/features/session-control/__tests__/pipecat-client.test.ts
+git commit -m "feat: integrate pipecat client-js and daily transport for live bot state events"
+```
+
+---
+
+## Updated self-review checklist
+
+- Spec coverage: all spec areas now have tasks — config ✅, pipeline ✅, real Pipecat wiring ✅,
+  state sync via RTVI ✅, latency ✅, Qdrant ✅, security ✅, tests ✅, deploy/docs ✅.
+- Tasks 12–14 use Pipecat as officially recommended: bot.py subprocess pattern, DailyRESTHelper
+  for room provisioning, SileroVADAnalyzer for interruptibility, RTVI protocol for state events.
+- No fake SSE invented — RTVI + `@pipecat-ai/client-js` is the canonical event channel.
+- Interruptibility maps to `SileroVADAnalyzer stop_secs` — the correct Pipecat 1.0+ API.
+- `allow_interruptions` legacy flag kept in `PipelineParams` as fallback; primary control is VAD.
+- Placeholder scan: no TODO/TBD used.
+- Type consistency: naming consistent across all tasks.
+```
