@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from backend.app.models.config import SessionConfig
+from app.models.config import SessionConfig
 
 
 def test_rejects_interruptibility_out_of_range():
