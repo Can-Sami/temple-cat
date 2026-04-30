@@ -2,31 +2,36 @@ version: '3.8'
 
 services:
   frontend:
-    image: node:18-alpine
+    build:
+      context: ./frontend
     working_dir: /app
     volumes:
-      - ./frontend:/app:ro
+      - ./frontend:/app
     ports:
       - "3000:3000"
-    environment:
-      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
+    env_file:
+      - .env
     depends_on:
       - backend
 
   backend:
-    image: python:3.11-slim
+    build:
+      context: ./backend
     working_dir: /app
     volumes:
-      - ./backend:/app:ro
-    environment:
-      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - ./backend:/app
     ports:
       - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
     depends_on:
       - qdrant
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.2.3
     ports:
       - "6333:6333"
     volumes:
