@@ -12,3 +12,16 @@ class SessionConfig(BaseModel):
     tts_speed: confloat(strict=True, ge=0.5, le=2.0) = Field(...)
     tts_temperature: confloat(strict=True, ge=0.0, le=1.0) = Field(...)
     interruptibility_percentage: conint(strict=True, ge=0, le=100) = Field(...)
+
+    # Pydantic v1: forbid extra/unknown fields
+    class Config:
+        extra = "forbid"
+
+    # Pydantic v2 compatibility: prefer ConfigDict when available
+    try:
+        from pydantic import ConfigDict  # type: ignore
+
+        model_config = ConfigDict(extra="forbid")
+    except Exception:
+        # If ConfigDict isn't present (pydantic<2), ignore
+        pass

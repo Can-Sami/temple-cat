@@ -3,8 +3,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-# Ensure tests can import 'app' package when run from repo root or CI
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Import path handled by backend/tests/conftest.py
 
 from app.models.config import SessionConfig
 
@@ -84,3 +83,11 @@ def test_accepts_boundary_values(field, value):
 
     cfg = SessionConfig(**data)
     assert getattr(cfg, field) == value
+
+
+def test_rejects_unknown_fields():
+    data = make_base()
+    data["unexpected_field"] = "surprise"
+
+    with pytest.raises(ValidationError):
+        SessionConfig(**data)
