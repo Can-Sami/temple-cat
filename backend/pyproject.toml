@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "goatcat-voice-backend"
 version = "0.0.0"
 description = "Voice AI backend"
-readme = "README.md"
+readme = "../interview-project-details.md"
 dependencies = [
   "fastapi>=0.95",
   "uvicorn[standard]>=0.22",
@@ -14,4 +14,4 @@ dependencies = [
 ]
 
 [project.scripts]
-start = "uvicorn:run"
+start = "backend.run:main"
