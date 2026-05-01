@@ -1,4 +1,6 @@
-# Production image: multi-stage build + Next.js standalone output
+# Production image: multi-stage build + Next.js standalone output.
+# Runtime MUST use `node server.js` (see compose command); do not use `npm run start`
+# unless you copy a full `.next` production tree into the image.
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./

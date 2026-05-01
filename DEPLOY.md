@@ -74,6 +74,8 @@ docker compose ps
 - **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC. Stdout/stderr for each bot is appended to **`/app/logs/bot-<session_id>.log`** inside the backend container (persisted via the `bot_logs` named volume).
 - **Dozzle** (optional) listens on **127.0.0.1:8080** only — use SSH port-forward or inspect logs via `docker compose logs`.
 
+If the frontend logs **“Could not find a production build in the '.next' directory”** and shows **`next start`**, you are not running the standalone image (stale image, or a bind-mount replaced `/app` with raw source). Rebuild with **`docker compose build --no-cache frontend`** and **do not** mount `./frontend` over `/app` in production. The stack runs **`node server.js`** from the image build output.
+
 ---
 
 ## 5. Log Locations

@@ -10,6 +10,9 @@ services:
       context: ./frontend
       args:
         BACKEND_URL: http://backend:8000
+    # Standalone image CMD — pinned here so we never fall through to `npm run start`
+    # (which expects `.next` from `next build` in-image).
+    command: ["node", "server.js"]
     ports:
       - "3000:3000"
     env_file:
