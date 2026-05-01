@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   frontend:
     build:
@@ -15,11 +21,7 @@ services:
         condition: service_healthy
     command: ["npm", "run", "dev"]
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *default-logging
 
   backend:
     build:
@@ -44,11 +46,7 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *default-logging
 
   qdrant:
     image: qdrant/qdrant:v1.13.2
@@ -57,11 +55,17 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *default-logging
+
+  dozzle:
+    image: amir20/dozzle:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    logging: *default-logging
+
 
 volumes:
   qdrant_data:
