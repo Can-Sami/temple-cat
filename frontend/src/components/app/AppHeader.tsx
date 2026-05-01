@@ -8,11 +8,11 @@ export function AppHeader({
   title,
   right,
   className,
-}: {
+}: Readonly<{
   title: string;
   right?: React.ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <header
       className={cn(

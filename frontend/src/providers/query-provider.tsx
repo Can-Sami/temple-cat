@@ -28,7 +28,7 @@ function createBrowserQueryClient() {
   });
 }
 
-export function QueryProvider({ children }: { children: ReactNode }) {
+export function QueryProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [client] = useState(createBrowserQueryClient);
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

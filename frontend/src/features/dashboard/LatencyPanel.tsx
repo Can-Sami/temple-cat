@@ -1,5 +1,5 @@
 interface Props {
-  latencyMs: number;
+  readonly latencyMs: number;
 }
 
 export function LatencyPanel({ latencyMs }: Props) {

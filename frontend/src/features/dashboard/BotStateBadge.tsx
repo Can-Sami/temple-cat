@@ -1,22 +1,29 @@
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import type { VariantProps } from "class-variance-authority";
 
-import type { BotState } from "./voiceBotState";
+export type { BotState } from "./voiceBotState";
 
-export type { BotState };
+type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
+
+function badgeVariantForState(state: import("./voiceBotState").BotState): BadgeVariant {
+  if (state === "Speaking") {
+    return "default";
+  }
+  if (state === "Thinking") {
+    return "secondary";
+  }
+  if (state === "Interrupted") {
+    return "destructive";
+  }
+  return "outline";
+}
 
 interface Props {
-  state: BotState;
+  readonly state: import("./voiceBotState").BotState;
 }
 
 export function BotStateBadge({ state }: Props) {
-  const variant =
-    state === "Speaking"
-      ? "default"
-      : state === "Thinking"
-        ? "secondary"
-        : state === "Interrupted"
-          ? "destructive"
-          : "outline";
+  const variant = badgeVariantForState(state);
 
   return (
     <Badge

@@ -13,7 +13,7 @@ export const metadata = {
   description: "Real-time voice AI interview application built with Pipecat and Next.js",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className={`font-sans ${geist.variable}`}>
       <body>

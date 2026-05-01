@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 
 interface Props {
-  isActive: boolean;
-  onStart: () => void;
-  onStop: () => void;
+  readonly isActive: boolean;
+  readonly onStart: () => void;
+  readonly onStop: () => void;
 }
 
 export function SessionControlPanel({ isActive, onStart, onStop }: Props) {

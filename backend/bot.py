@@ -100,16 +100,16 @@ def stt_endpointing_ms(stt_temperature: float) -> int:
 
 def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.InputParams:
     """Build Cartesia params for both Sonic-3 (GenerationConfig) and legacy InputParams."""
-    InputParams = CartesiaTTSService.InputParams
+    input_params_cls = CartesiaTTSService.InputParams
     speed = float(config.tts_speed)
     tts_temp = max(0.0, min(1.0, float(config.tts_temperature)))
     volume = max(0.5, min(2.0, 0.7 + 0.55 * tts_temp))
 
-    field_names = _model_fields(InputParams)
+    field_names = _model_fields(input_params_cls)
     if "generation_config" in field_names:
         from pipecat.services.cartesia.tts import GenerationConfig
 
-        return InputParams(
+        return input_params_cls(
             generation_config=GenerationConfig(speed=speed, volume=volume),
         )
 
@@ -126,7 +126,7 @@ def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.Inp
         kwargs["speed"] = speed_preset(speed)
     if "emotion" in field_names:
         kwargs["emotion"] = ["excited"] if tts_temp >= 0.5 else []
-    return InputParams(**kwargs)
+    return input_params_cls(**kwargs)
 
 
 def build_pipeline_params(*, tracing: bool) -> PipelineParams:

@@ -2,7 +2,7 @@ import asyncio
 import json
 import subprocess
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,22 +25,29 @@ VALID_PAYLOAD = {
     "tts_voice": "sonic",
     "tts_speed": 1.0,
     "tts_temperature": 0.3,
-    "interruptibility_percentage": 70
+    "interruptibility_percentage": 70,
 }
 
 
-def _running_bot_process(mock_popen):
+def _configure_create_subprocess_mock(mock_exec: AsyncMock, *, returncode: int | None, pid: int = 4242):
     proc = MagicMock()
-    proc.pid = 4242
-    proc.poll.return_value = None
-    mock_popen.return_value = proc
+    proc.pid = pid
+    proc.returncode = returncode
+    stdout = MagicMock()
+    stdout.read = AsyncMock(return_value=b"")
+    proc.stdout = stdout
+
+    async def _fake(*_args, **_kwargs):
+        return proc
+
+    mock_exec.side_effect = _fake
     return proc
 
 
 @patch("app.api.sessions.session_creation_limiter")
-@patch("app.api.sessions.subprocess.Popen")
+@patch("app.api.sessions.asyncio.create_subprocess_exec", new_callable=AsyncMock)
 @patch("app.api.sessions.DailyRESTHelper")
-def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_popen, mock_limiter):
+def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_subprocess_exec, mock_limiter):
     # Mock DailyRESTHelper behavior
     mock_helper = MagicMock()
     mock_helper_cls.return_value = mock_helper
@@ -58,11 +65,11 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
     future_user_token.set_result("user-token-xyz")
     mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
 
-    mock_proc = _running_bot_process(mock_popen)
+    mock_proc = _configure_create_subprocess_mock(mock_subprocess_exec, returncode=None)
 
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "session_id" in data
     assert data["room_url"] == "https://mock.daily.co/room123"
@@ -70,21 +77,21 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
     assert data["bot_pid"] == mock_proc.pid
 
     # Verify bot was spawned as subprocess with correct arguments
-    mock_popen.assert_called_once()
-    cmd = mock_popen.call_args[0][0]
-    popen_kw = mock_popen.call_args[1]
+    mock_subprocess_exec.assert_called_once()
+    cmd = list(mock_subprocess_exec.call_args[0])
+    kw = mock_subprocess_exec.call_args[1]
     assert cmd[0] == sys.executable
     assert "bot.py" in cmd[1]
-    assert popen_kw.get("start_new_session") is True
-    assert popen_kw.get("stdin") == subprocess.DEVNULL
-    assert isinstance(popen_kw.get("stdout"), int)
-    assert popen_kw.get("stderr") == subprocess.STDOUT
+    assert kw.get("start_new_session") is True
+    assert kw.get("stdin") == subprocess.DEVNULL
+    assert kw.get("stdout") == asyncio.subprocess.PIPE
+    assert kw.get("stderr") == subprocess.STDOUT
     assert "--room-url" in cmd
     assert "https://mock.daily.co/room123" in cmd
     assert "--token" in cmd
     assert "bot-token-abc" in cmd
     assert "--config" in cmd
-    
+
     # Verify config payload passed to bot matches
     config_str = cmd[cmd.index("--config") + 1]
     config_data = json.loads(config_str)
@@ -95,20 +102,20 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
 
 
 @patch("app.api.sessions.session_creation_limiter")
-@patch("app.api.sessions.subprocess.Popen")
+@patch("app.api.sessions.asyncio.create_subprocess_exec", new_callable=AsyncMock)
 @patch("app.api.sessions.DailyRESTHelper")
-def test_create_session_returns_429_when_rate_limited(mock_helper_cls, mock_popen, mock_limiter):
+def test_create_session_returns_429_when_rate_limited(mock_helper_cls, mock_subprocess_exec, mock_limiter):
     mock_limiter.allow.return_value = False
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 429
     mock_helper_cls.assert_not_called()
-    mock_popen.assert_not_called()
+    mock_subprocess_exec.assert_not_called()
 
 
 @patch("app.api.sessions.session_creation_limiter")
-@patch("app.api.sessions.subprocess.Popen")
+@patch("app.api.sessions.asyncio.create_subprocess_exec", new_callable=AsyncMock)
 @patch("app.api.sessions.DailyRESTHelper")
-def test_create_session_retries_daily_create_room(mock_helper_cls, mock_popen, mock_limiter):
+def test_create_session_retries_daily_create_room(mock_helper_cls, mock_subprocess_exec, mock_limiter):
     import aiohttp
 
     mock_limiter.allow.return_value = True
@@ -118,6 +125,7 @@ def test_create_session_retries_daily_create_room(mock_helper_cls, mock_popen, m
     attempt = {"n": 0}
 
     async def flaky_create_room(_params):
+        await asyncio.sleep(0)
         attempt["n"] += 1
         if attempt["n"] < 2:
             raise aiohttp.ClientConnectionError("transient")
@@ -131,18 +139,18 @@ def test_create_session_retries_daily_create_room(mock_helper_cls, mock_popen, m
     future_user_token.set_result("user-token-xyz")
     mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
 
-    _running_bot_process(mock_popen)
+    _configure_create_subprocess_mock(mock_subprocess_exec, returncode=None)
 
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 200
     assert attempt["n"] == 2
-    mock_popen.assert_called_once()
+    mock_subprocess_exec.assert_called_once()
 
 
 @patch("app.api.sessions.session_creation_limiter")
-@patch("app.api.sessions.subprocess.Popen")
+@patch("app.api.sessions.asyncio.create_subprocess_exec", new_callable=AsyncMock)
 @patch("app.api.sessions.DailyRESTHelper")
-def test_create_session_503_when_bot_exits_immediately(mock_helper_cls, mock_popen, mock_limiter):
+def test_create_session_503_when_bot_exits_immediately(mock_helper_cls, mock_subprocess_exec, mock_limiter):
     mock_limiter.allow.return_value = True
     mock_helper = MagicMock()
     mock_helper_cls.return_value = mock_helper
@@ -157,10 +165,7 @@ def test_create_session_503_when_bot_exits_immediately(mock_helper_cls, mock_pop
     future_user_token.set_result("user-token-xyz")
     mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
 
-    dead_proc = MagicMock()
-    dead_proc.pid = 999
-    dead_proc.poll.return_value = 1
-    mock_popen.return_value = dead_proc
+    _configure_create_subprocess_mock(mock_subprocess_exec, returncode=1, pid=999)
 
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 503

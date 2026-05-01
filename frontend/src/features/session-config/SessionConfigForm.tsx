@@ -16,18 +16,18 @@ export interface SessionConfigPayload {
 }
 
 interface Props {
-  onSubmit: (payload: SessionConfigPayload) => void;
+  readonly onSubmit: (payload: SessionConfigPayload) => void;
   /** Disables submit while the server session request is in flight. */
-  submitting?: boolean;
+  readonly submitting?: boolean;
 }
 
 export function SessionConfigForm({ onSubmit, submitting = false }: Props) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [llmTemperature, setLlmTemperature] = useState(0.7);
   const [llmMaxTokens, setLlmMaxTokens] = useState(256);
-  const [sttTemperature, setSttTemperature] = useState(0.0);
+  const [sttTemperature, setSttTemperature] = useState(0);
   const [ttsVoice, setTtsVoice] = useState("sonic");
-  const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ttsSpeed, setTtsSpeed] = useState(1);
   const [ttsTemperature, setTtsTemperature] = useState(0.3);
   const [interruptibility, setInterruptibility] = useState(70);
 

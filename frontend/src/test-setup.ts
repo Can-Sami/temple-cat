@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom";
 
-if (!window.matchMedia) {
-  window.matchMedia = (query: string) =>
+if (!globalThis.matchMedia) {
+  globalThis.matchMedia = (query: string) =>
     ({
       matches: false,
       media: query,

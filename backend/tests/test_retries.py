@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 import pytest
 from unittest.mock import MagicMock
@@ -10,6 +12,7 @@ async def test_retry_async_recovers_after_connection_error():
     attempts = {"n": 0}
 
     async def flaky():
+        await asyncio.sleep(0)
         attempts["n"] += 1
         if attempts["n"] < 2:
             raise aiohttp.ClientConnectionError("transient")
@@ -24,6 +27,7 @@ async def test_retry_async_does_not_retry_when_retry_if_false():
     calls = {"n": 0}
 
     async def failing():
+        await asyncio.sleep(0)
         calls["n"] += 1
         raise RuntimeError("hard fail")
 
@@ -37,6 +41,7 @@ async def test_retry_async_does_not_retry_client_response_400():
     calls = {"n": 0}
 
     async def bad_request():
+        await asyncio.sleep(0)
         calls["n"] += 1
         raise aiohttp.ClientResponseError(
             request_info=MagicMock(),

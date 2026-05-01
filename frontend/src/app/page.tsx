@@ -112,27 +112,7 @@ function InterviewDashboard() {
         </p>
       </div>
 
-      {!sessionActive ? (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Configure Session</CardTitle>
-            <CardDescription>Set prompts and model parameters before connecting.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 pt-6">
-            {sessionError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not start session</AlertTitle>
-                <AlertDescription>{sessionError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <SessionConfigForm
-              onSubmit={handleStartSession}
-              submitting={createSession.isPending}
-            />
-          </CardContent>
-        </Card>
-      ) : (
+      {sessionActive ? (
         <Card>
           <CardHeader className="border-b">
             <CardTitle>Live Session</CardTitle>
@@ -150,6 +130,26 @@ function InterviewDashboard() {
             <Separator />
 
             <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>Configure Session</CardTitle>
+            <CardDescription>Set prompts and model parameters before connecting.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 pt-6">
+            {sessionError ? (
+              <Alert variant="destructive">
+                <AlertTitle>Could not start session</AlertTitle>
+                <AlertDescription>{sessionError}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <SessionConfigForm
+              onSubmit={handleStartSession}
+              submitting={createSession.isPending}
+            />
           </CardContent>
         </Card>
       )}

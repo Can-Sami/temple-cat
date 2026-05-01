@@ -10,11 +10,11 @@ export function AppShell({
   title,
   headerRight,
   children,
-}: {
+}: Readonly<{
   title: string;
   headerRight?: React.ReactNode;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="flex min-h-svh flex-col bg-background">
       <AppHeader title={title} right={headerRight} />

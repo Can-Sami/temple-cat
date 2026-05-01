@@ -5,7 +5,7 @@ import Page from "../page";
 import { QueryProvider } from "@/providers/query-provider";
 
 vi.mock("@pipecat-ai/daily-transport", () => ({
-  DailyTransport: class DailyTransport {},
+  DailyTransport: function DailyTransport() {},
 }));
 
 vi.mock("@pipecat-ai/client-js", () => {
