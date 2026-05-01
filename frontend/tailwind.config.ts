@@ -1,9 +1,13 @@
 import type { Config } from "tailwindcss";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 const config: Config = {
   darkMode: ["class"],
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
+    fontFamily: {
+      sans: ["var(--font-geist-sans)", ...defaultTheme.fontFamily.sans],
+    },
     extend: {
       colors: {
         background: "var(--background)",
