@@ -1,6 +1,7 @@
 # Python bytecode / local setuptools output
 __pycache__/
 backend/build/
+*.egg-info/
 *.py[cod]
 *$py.class
 
