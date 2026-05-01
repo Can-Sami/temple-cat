@@ -49,11 +49,20 @@ jobs:
             echo "extra=" >> "$GITHUB_OUTPUT"
           fi
 
+      # Do not pass SONAR_HOST_URL when the secret is unset: an empty value breaks SonarCloud
+      # (scanner builds relative URLs like /api/...). Self-hosted setups must define the secret.
+      - name: Configure Sonar server URL (self-hosted only)
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          if [ -n "$SONAR_HOST_URL" ]; then
+            echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
+          fi
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: ${{ steps.sonar_args.outputs.extra }}
