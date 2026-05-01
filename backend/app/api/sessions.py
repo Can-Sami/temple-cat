@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import subprocess
@@ -8,8 +9,10 @@ from uuid import uuid4
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from app.models.config import SessionConfig
+from app.models.session_response import VoiceSessionResponse
 from app.services.rate_limit import session_creation_limiter_from_env
 from app.services.request_identity import client_ip
 from app.services.retries import daily_api_max_attempts, retry_async
@@ -21,8 +24,8 @@ session_creation_limiter = session_creation_limiter_from_env()
 _logger = logging.getLogger(__name__)
 
 
-@router.post("")
-async def create_session(config: SessionConfig, request: Request) -> dict[str, str]:
+@router.post("", response_model=VoiceSessionResponse)
+async def create_session(config: SessionConfig, request: Request) -> VoiceSessionResponse | JSONResponse:
     """Bootstrap a new voice session and return its ID.
 
     Provisions a Daily room, mints tokens, and spawns the bot subprocess.
@@ -96,15 +99,39 @@ async def create_session(config: SessionConfig, request: Request) -> dict[str, s
     finally:
         os.close(log_fd)
 
+    # Brief yield so import/config validation failures surface before we hand tokens to the client.
+    await asyncio.sleep(0.1)
+    exit_early = proc.poll()
+    if exit_early is not None:
+        _logger.error(
+            "bot subprocess exited immediately session_id=%s pid=%s exit_code=%s log_file=%s metric=bot_spawn_failure",
+            session_id,
+            proc.pid,
+            exit_early,
+            log_path,
+        )
+        # JSONResponse avoids FastAPI's default HTTPException ``{"detail": {...}}`` wrapping.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "bot_startup_failed",
+                "message": "Voice bot failed to start; see server logs and bot log file for this session.",
+                "session_id": session_id,
+                "exit_code": exit_early,
+                "log_file": str(log_path),
+            },
+        )
+
     _logger.info(
-        "spawned voice bot subprocess session_id=%s pid=%s log_file=%s",
+        "spawned voice bot subprocess session_id=%s pid=%s log_file=%s metric=bot_spawn_ok",
         session_id,
         proc.pid,
         log_path,
     )
 
-    return {
-        "session_id": session_id,
-        "room_url": room.url,
-        "token": user_token,
-    }
+    return VoiceSessionResponse(
+        session_id=session_id,
+        room_url=room.url,
+        token=user_token,
+        bot_pid=proc.pid,
+    )

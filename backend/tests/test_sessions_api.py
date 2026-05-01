@@ -29,6 +29,14 @@ VALID_PAYLOAD = {
 }
 
 
+def _running_bot_process(mock_popen):
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = None
+    mock_popen.return_value = proc
+    return proc
+
+
 @patch("app.api.sessions.session_creation_limiter")
 @patch("app.api.sessions.subprocess.Popen")
 @patch("app.api.sessions.DailyRESTHelper")
@@ -50,6 +58,8 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
     future_user_token.set_result("user-token-xyz")
     mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
 
+    mock_proc = _running_bot_process(mock_popen)
+
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 200
     
@@ -57,6 +67,7 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
     assert "session_id" in data
     assert data["room_url"] == "https://mock.daily.co/room123"
     assert data["token"] == "user-token-xyz"
+    assert data["bot_pid"] == mock_proc.pid
 
     # Verify bot was spawned as subprocess with correct arguments
     mock_popen.assert_called_once()
@@ -120,7 +131,40 @@ def test_create_session_retries_daily_create_room(mock_helper_cls, mock_popen, m
     future_user_token.set_result("user-token-xyz")
     mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
 
+    _running_bot_process(mock_popen)
+
     response = client.post("/api/sessions", json=VALID_PAYLOAD)
     assert response.status_code == 200
     assert attempt["n"] == 2
     mock_popen.assert_called_once()
+
+
+@patch("app.api.sessions.session_creation_limiter")
+@patch("app.api.sessions.subprocess.Popen")
+@patch("app.api.sessions.DailyRESTHelper")
+def test_create_session_503_when_bot_exits_immediately(mock_helper_cls, mock_popen, mock_limiter):
+    mock_limiter.allow.return_value = True
+    mock_helper = MagicMock()
+    mock_helper_cls.return_value = mock_helper
+
+    future_room = asyncio.Future()
+    future_room.set_result(MagicMock(url="https://mock.daily.co/room123"))
+    mock_helper.create_room.return_value = future_room
+
+    future_bot_token = asyncio.Future()
+    future_bot_token.set_result("bot-token-abc")
+    future_user_token = asyncio.Future()
+    future_user_token.set_result("user-token-xyz")
+    mock_helper.get_token.side_effect = [future_bot_token, future_user_token]
+
+    dead_proc = MagicMock()
+    dead_proc.pid = 999
+    dead_proc.poll.return_value = 1
+    mock_popen.return_value = dead_proc
+
+    response = client.post("/api/sessions", json=VALID_PAYLOAD)
+    assert response.status_code == 503
+    body = response.json()
+    assert body.get("error") == "bot_startup_failed"
+    assert body.get("exit_code") == 1
+    assert "session_id" in body

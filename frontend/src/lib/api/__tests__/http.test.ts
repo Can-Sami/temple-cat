@@ -14,4 +14,13 @@ describe("formatApiErrorBody", () => {
       })
     ).toBe("too short; bad field");
   });
+
+  test("reads structured error message when detail is absent", () => {
+    expect(
+      formatApiErrorBody({
+        error: "bot_startup_failed",
+        message: "Voice bot failed to start.",
+      })
+    ).toBe("Voice bot failed to start.");
+  });
 });

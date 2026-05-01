@@ -89,3 +89,11 @@ def test_rejects_unknown_fields():
 
     with pytest.raises(ValidationError):
         SessionConfig(**data)
+
+
+def test_model_validate_json_second_line_of_defense():
+    """Matches how bot.py parses --config (same schema as the API)."""
+    cfg = SessionConfig(**make_base())
+    raw = cfg.model_dump_json()
+    again = SessionConfig.model_validate_json(raw)
+    assert again == cfg

@@ -27,5 +27,9 @@ export function formatApiErrorBody(body: unknown): string | null {
       .filter(Boolean);
     if (parts.length) return parts.join("; ");
   }
+
+  const message = (body as { message?: unknown }).message;
+  if (typeof message === "string" && message.trim()) return message.trim();
+
   return null;
 }

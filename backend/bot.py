@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -53,7 +52,8 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
-from app.services.interruptibility import build_interruptibility_policy
+from app.models.config import SessionConfig
+from app.services.interruptibility import build_vad_tuning
 from app.services.pipecat_tracing import configure_pipecat_tracing_from_env, tracing_enabled_from_env
 
 AUDIO_IN_HZ = 16000
@@ -83,16 +83,8 @@ def build_system_messages(system_prompt: str) -> list[dict]:
 
 
 def build_vad_stop_secs(interruptibility_percentage: int) -> float:
-    """Map interruptibility % to Silero VAD stop_secs.
-
-    High interruptibility -> short stop_secs (bot yields to user quickly).
-    Low interruptibility  -> long stop_secs  (bot holds the floor).
-    """
-    policy = build_interruptibility_policy(interruptibility_percentage)
-    # Map min_user_speech_ms linearly to VAD stop_secs range [0.15, 0.80]
-    # policy.min_user_speech_ms is in [100, 300] from our interruptibility service
-    clamped = max(100, min(300, policy.min_user_speech_ms))
-    return 0.15 + (clamped - 100) / 200 * 0.65  # maps 100->0.15, 300->0.80
+    """Map interruptibility % to Silero VAD ``stop_secs`` (end-of-speech sensitivity)."""
+    return build_vad_tuning(interruptibility_percentage).stop_secs
 
 
 def stt_endpointing_ms(stt_temperature: float) -> int:
@@ -106,11 +98,11 @@ def stt_endpointing_ms(stt_temperature: float) -> int:
     return int(round(450.0 - t * 370.0))
 
 
-def build_cartesia_input_params(config: dict[str, Any]) -> CartesiaTTSService.InputParams:
+def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.InputParams:
     """Build Cartesia params for both Sonic-3 (GenerationConfig) and legacy InputParams."""
     InputParams = CartesiaTTSService.InputParams
-    speed = float(config["tts_speed"])
-    tts_temp = max(0.0, min(1.0, float(config["tts_temperature"])))
+    speed = float(config.tts_speed)
+    tts_temp = max(0.0, min(1.0, float(config.tts_temperature)))
     volume = max(0.5, min(2.0, 0.7 + 0.55 * tts_temp))
 
     field_names = _model_fields(InputParams)
@@ -151,13 +143,19 @@ def build_pipeline_params(*, tracing: bool) -> PipelineParams:
 async def run_bot(
     room_url: str,
     token: str,
-    config: dict[str, Any],
+    config: SessionConfig,
     *,
     conversation_id: str | None,
 ) -> None:
+    vad = build_vad_tuning(config.interruptibility_percentage)
     _logger.info(
-        "starting voice bot interruptibility=%s%%",
-        config.get("interruptibility_percentage"),
+        "starting voice bot interruptibility=%s%% vad_stop_secs=%.3f vad_start_secs=%.3f "
+        "preemption_profile=start_vol/conf=%.2f/%.2f",
+        config.interruptibility_percentage,
+        vad.stop_secs,
+        vad.start_secs,
+        vad.min_volume,
+        vad.confidence,
     )
 
     tracing_on = tracing_enabled_from_env()
@@ -174,7 +172,7 @@ async def run_bot(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         sample_rate=AUDIO_IN_HZ,
         settings=DeepgramSTTService.Settings(
-            endpointing=stt_endpointing_ms(config["stt_temperature"]),
+            endpointing=stt_endpointing_ms(config.stt_temperature),
         ),
     )
 
@@ -182,12 +180,12 @@ async def run_bot(
         api_key=os.environ["OPENAI_API_KEY"],
         settings=OpenAILLMService.Settings(
             model="gpt-4o",
-            temperature=config["llm_temperature"],
-            max_tokens=config["llm_max_tokens"],
+            temperature=config.llm_temperature,
+            max_tokens=config.llm_max_tokens,
         ),
     )
 
-    voice_name = config["tts_voice"]
+    voice_name = config.tts_voice
     voice_map = {
         "sonic": "79a125e8-cd45-4c13-8a67-188112f4dd22",
         "alloy": "79a125e8-cd45-4c13-8a67-188112f4dd22",  # fallback
@@ -205,13 +203,19 @@ async def run_bot(
         params=build_cartesia_input_params(config),
     )
 
-    context = LLMContext(messages=build_system_messages(config["system_prompt"]))
+    context = LLMContext(messages=build_system_messages(config.system_prompt))
 
-    vad_stop_secs = build_vad_stop_secs(config["interruptibility_percentage"])
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=vad_stop_secs)),
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                    stop_secs=vad.stop_secs,
+                    start_secs=vad.start_secs,
+                    confidence=vad.confidence,
+                    min_volume=vad.min_volume,
+                ),
+            ),
         ),
     )
 
@@ -261,6 +265,8 @@ async def run_bot(
 
 
 if __name__ == "__main__":
+    from pydantic import ValidationError
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--room-url", required=True)
     parser.add_argument("--token", required=True)
@@ -275,12 +281,16 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     _configure_logging()
-    config_data = json.loads(args.config)
+    try:
+        session_cfg = SessionConfig.model_validate_json(args.config)
+    except ValidationError as exc:
+        _logger.error("invalid SessionConfig in subprocess: %s", exc)
+        sys.exit(2)
     asyncio.run(
         run_bot(
             args.room_url,
             args.token,
-            config_data,
+            session_cfg,
             conversation_id=args.conversation_id,
         )
     )
