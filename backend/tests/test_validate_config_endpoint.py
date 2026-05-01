@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 
 from app.main import app
 
@@ -40,3 +41,11 @@ def test_validate_config_unknown_field():
     data["unexpected_field"] = "surprise"
     resp = client.post("/api/validate-config", json=data)
     assert resp.status_code == 422
+
+
+@patch("app.main._validate_config_limiter")
+def test_validate_config_returns_429_when_rate_limited(mock_lim):
+    mock_lim.allow.return_value = False
+    client = TestClient(app)
+    resp = client.post("/api/validate-config", json=make_base())
+    assert resp.status_code == 429

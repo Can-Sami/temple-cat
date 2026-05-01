@@ -21,9 +21,11 @@
 | 443 | TCP | 0.0.0.0/0 | HTTPS (Cloudflare Tunnel) |
 | 3000 | TCP | 0.0.0.0/0 | Next.js frontend |
 | 8000 | TCP | 0.0.0.0/0 | FastAPI backend |
-| 6333 | TCP | VPC only | Qdrant (internal only) |
+| 8080 | TCP | `127.0.0.1` only | Dozzle (container logs UI — bound to localhost in `docker-compose.yml`) |
 
 > **Note:** If using Cloudflare Tunnel, only port 22 needs to be open to the public. The tunnel handles 80/443 routing.
+
+Set **`FRONTEND_ORIGIN`** in `.env` to your real browser origin (e.g. `https://your-tunnel.example.com` or a comma-separated list). The backend rejects cross-origin browser calls from hosts not listed there (no wildcard by default).
 
 ---
 
@@ -59,20 +61,18 @@ docker compose ps
 ## 4. Docker Compose Service Wiring
 
 ```
-┌──────────────┐      ┌──────────────────┐      ┌─────────────┐
-│   Frontend   │─────▶│     Backend      │─────▶│   Qdrant    │
-│  (Next.js)   │      │  (FastAPI + bot) │      │  (VectorDB) │
-│  :3000       │      │  :8000           │      │  :6333      │
-└──────────────┘      └──────────────────┘      └─────────────┘
-        │                     │
-        └──── Daily.co ───────┘  (WebRTC — external)
-              (WebRTC Room)
+┌──────────────┐      ┌──────────────────────────────┐
+│   Frontend   │─────▶│     Backend                  │
+│  (Next.js)   │      │  (FastAPI + bot subprocesses) │
+│  :3000       │      │  :8000, bot logs → volume    │
+└──────────────┘      └──────────────────────────────┘
+        │                           │
+        └──────── Daily.co ─────────┘  (WebRTC — external)
 ```
 
 - **Frontend** depends on **backend** (`service_healthy`) — waits for the backend health check to pass before starting.
-- **Backend** depends on **qdrant** (`service_healthy`) — waits for Qdrant's `/healthz` to respond before starting.
-- **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC.
-- **Qdrant** stores vector embeddings on a named volume (`qdrant_data`) — persists across restarts.
+- **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC. Stdout/stderr for each bot is appended to **`/app/logs/bot-<session_id>.log`** inside the backend container (persisted via the `bot_logs` named volume).
+- **Dozzle** (optional) listens on **127.0.0.1:8080** only — use SSH port-forward or inspect logs via `docker compose logs`.
 
 ---
 
@@ -87,7 +87,10 @@ docker compose logs -f
 # View logs for a specific service
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f qdrant
+
+# Per-session Pipecat bots (same host as backend container):
+docker compose exec backend ls -la /app/logs
+docker compose exec backend tail -f /app/logs/bot-<session_id>.log
 
 # View raw Docker log files (for log shipping)
 /var/lib/docker/containers/<container-id>/<container-id>-json.log
@@ -117,8 +120,10 @@ docker compose restart backend
 
 To do a full stack restart:
 ```bash
-docker compose down && docker compose up -d
+docker compose down && docker compose up -d --remove-orphans
 ```
+
+(`--remove-orphans` drops containers from older compose definitions that are no longer declared.)
 
 ---
 
@@ -132,8 +137,8 @@ All keys are loaded from `.env` at the repo root. See `.env.example` for the ful
 | `DEEPGRAM_API_KEY` | ✅ | Deepgram API key for STT |
 | `CARTESIA_API_KEY` | ✅ | Cartesia API key for TTS |
 | `DAILY_API_KEY` | ✅ | Daily.co API key for WebRTC rooms |
-| `QDRANT_URL` | ✅ | Qdrant URL (default: `http://qdrant:6333`) |
-| `FRONTEND_ORIGIN` | ✅ | Allowed CORS origin (default: `http://localhost:3000`) |
+| `FRONTEND_ORIGIN` | ✅ | CORS allow-list (comma-separated origins); default `http://localhost:3000`. Must include your public tunnel HTTPS origin in production. |
+| `BOT_LOG_DIR` | optional | Directory for bot log files (default `/app/logs` in Compose) |
 
 > ⚠️ **Never commit `.env` to git.** Only `.env.example` is committed.
 

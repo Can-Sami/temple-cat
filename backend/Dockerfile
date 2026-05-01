@@ -4,5 +4,6 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN pip install .
 COPY . .
+RUN mkdir -p /app/logs
 # Default command for local dev; compose can override as needed
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -13,9 +13,11 @@ export interface SessionConfigPayload {
 
 interface Props {
   onSubmit: (payload: SessionConfigPayload) => void;
+  /** Disables submit while the server session request is in flight. */
+  submitting?: boolean;
 }
 
-export function SessionConfigForm({ onSubmit }: Props) {
+export function SessionConfigForm({ onSubmit, submitting = false }: Props) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [llmTemperature, setLlmTemperature] = useState(0.7);
   const [llmMaxTokens, setLlmMaxTokens] = useState(256);
@@ -140,7 +142,9 @@ export function SessionConfigForm({ onSubmit }: Props) {
         />
       </div>
 
-      <button type="submit">Start Session</button>
+      <button type="submit" disabled={submitting} aria-busy={submitting}>
+        {submitting ? "Starting…" : "Start Session"}
+      </button>
     </form>
   );
 }

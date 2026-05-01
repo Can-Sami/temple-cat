@@ -8,7 +8,8 @@ services:
   frontend:
     build:
       context: ./frontend
-    working_dir: /app
+      args:
+        BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
     env_file:
@@ -19,7 +20,18 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    command: ["npm", "run", "dev"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     logging: *default-logging
 
@@ -33,11 +45,10 @@ services:
       - path: .env
         required: false
     environment:
-      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
-    depends_on:
-      qdrant:
-        condition: service_started
+      - BOT_LOG_DIR=/app/logs
+    volumes:
+      - bot_logs:/app/logs
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
@@ -48,24 +59,15 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: unless-stopped
-    logging: *default-logging
-
   dozzle:
     image: amir20/dozzle:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     logging: *default-logging
 
 
 volumes:
-  qdrant_data:
+  bot_logs:
