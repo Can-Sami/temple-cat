@@ -1,33 +1,38 @@
 # DEPLOY.md — Temple-cat Voice AI Deployment Runbook
 
+One-page checklist: **region / AMI / instance**, **security group ports**, **Compose wiring**, **logs**, **reboot/restart**. Optional OpenTelemetry details are in **§8**.
+
 ## 1. Target Infrastructure
 
 | Setting | Value |
 |---|---|
 | Cloud | AWS |
-| Region | `us-east-1` (recommended for lowest Daily.co latency from US) |
-| AMI | `ami-0c02fb55956c7d316` — Ubuntu 22.04 LTS (HVM, SSD, x86_64) |
-| Instance type | `t3.medium` (2 vCPU, 4 GiB RAM) |
-| Storage | 20 GiB gp3 root volume |
+| Region | **`eu-central-1`** |
+| AMI | **Ubuntu 22.04 LTS** — amd64, HVM. Resolve the current ID in-region (recommended): `aws ssm get-parameter --region eu-central-1 --name /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id --query Parameter.Value --output text` (or pick **Ubuntu 22.04 LTS** from the EC2 launch wizard). |
+| Instance type | **`c7i-flex.large`** |
+| Storage | 20 GiB gp3 root volume (adjust as needed) |
 
 **Optional add-on (Freya brief — pick one):** This project implements **Pipecat OpenTelemetry → Jaeger**, not Qdrant/RAG. Jaeger is behind Compose profile **`otel`**; see **§8**. Default `docker compose up -d` runs only frontend, backend, and Dozzle.
 
 ---
 
-## 2. AWS Security Group — Required Open Ports
+## 2. AWS Security Group — Inbound Ports
+
+Public HTTP/S is **not** exposed on the instance Security Group. Use **Cloudflare Tunnel** (or ngrok) on the host so browsers hit Cloudflare’s edge; `cloudflared` forwards to **`http://127.0.0.1:3000`** locally.
 
 | Port | Protocol | Source | Purpose |
 |---|---|---|---|
-| 22 | TCP | Your IP | SSH access |
-| 80 | TCP | 0.0.0.0/0 | HTTP (redirect to app) |
-| 443 | TCP | 0.0.0.0/0 | HTTPS (Cloudflare Tunnel) |
-| 3000 | TCP | 0.0.0.0/0 | Next.js frontend |
-| 8000 | TCP | 0.0.0.0/0 | FastAPI backend |
-| 8080 | TCP | `127.0.0.1` only | Dozzle (container logs UI — bound to localhost in `docker-compose.yml`) |
+| **22** | TCP | **Your IP** (or bastion) only | **SSH — only inbound rule required** |
 
-> **Note:** If using Cloudflare Tunnel, only port 22 needs to be open to the public. The tunnel handles 80/443 routing.
+**Inbound:** no `80` / `443` / `3000` / `8000` rules toward `0.0.0.0/0` are needed for evaluators to use the app.
+
+**Outbound:** default “allow all” (or at minimum HTTPS to reach Daily, OpenAI, Deepgram, Cartesia, Cloudflare).
+
+**Inside the instance:** `docker-compose.yml` still publishes **3000** (frontend) and **8000** (backend) on the host so the stack and tunnel can reach them; the Security Group blocks the open internet from connecting directly to those ports.
 
 Set **`FRONTEND_ORIGIN`** in `.env` to your real browser origin (e.g. `https://your-tunnel.example.com` or a comma-separated list). The backend rejects cross-origin browser calls from hosts not listed there (no wildcard by default).
+
+**Dozzle** binds to **`127.0.0.1:8080`** only — use **SSH port-forward** if you want the UI remotely: `ssh -L 8080:127.0.0.1:8080 ubuntu@<host>`.
 
 ---
 
@@ -184,6 +189,8 @@ Each voice session passes **`--conversation-id`** (same as API `session_id`) int
 ---
 
 ## 9. Cloudflare Tunnel Setup (Recommended)
+
+With **only SSH open** in AWS, run `cloudflared` **on the EC2 instance** (systemd service or `tmux`). Evaluators use the tunnel URL; they never need port 3000 on the Security Group.
 
 ```bash
 # Install cloudflared
