@@ -38,6 +38,7 @@ def _configure_create_subprocess_mock(mock_exec: AsyncMock, *, returncode: int |
     proc.stdout = stdout
 
     async def _fake(*_args, **_kwargs):
+        await asyncio.sleep(0)
         return proc
 
     mock_exec.side_effect = _fake

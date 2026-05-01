@@ -1,5 +1,6 @@
-# Python bytecode
+# Python bytecode / local setuptools output
 __pycache__/
+backend/build/
 *.py[cod]
 *$py.class
 

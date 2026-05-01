@@ -24,6 +24,14 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 session_creation_limiter = session_creation_limiter_from_env()
 _logger = logging.getLogger(__name__)
 
+# Strong refs until drain completes; prevents GC of fire-and-forget tasks after the handler returns.
+_stdout_drain_tasks: set[asyncio.Task[None]] = set()
+
+
+def _retain_stdout_drain_task(task: asyncio.Task[None]) -> None:
+    _stdout_drain_tasks.add(task)
+    task.add_done_callback(_stdout_drain_tasks.discard)
+
 
 async def _pipe_stdout_to_file(stream: asyncio.StreamReader | None, path: Path) -> None:
     if stream is None:
@@ -139,7 +147,7 @@ async def create_session(config: SessionConfig, request: Request) -> VoiceSessio
             },
         )
 
-    asyncio.create_task(_pipe_stdout_to_file(proc.stdout, log_path))
+    _retain_stdout_drain_task(asyncio.create_task(_pipe_stdout_to_file(proc.stdout, log_path)))
 
     _logger.info(
         "spawned voice bot subprocess session_id=%s pid=%s log_file=%s metric=bot_spawn_ok",
