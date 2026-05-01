@@ -2,14 +2,16 @@
 Pipecat voice bot — spawned as a subprocess by the session endpoint.
 
 Usage:
-    python bot.py --room-url <url> --token <token> --config <json> [--conversation-id <uuid>]
+    python bot.py --room-url <url> --token <token> --body <json> [--conversation-id <uuid>]
+
+    ``--config`` is a deprecated alias for ``--body`` (Pipecat ``DailyRunnerArguments.body``).
 
 OpenTelemetry (optional): set ENABLE_TRACING=1 and OTLP env vars; see .env.example and DEPLOY.md.
 
 Help Center RAG (optional): when RAG_ENABLED=1 (default in Compose), each user turn retrieves top Q&A
 from Qdrant and injects a second system message before the LLM (see DEPLOY.md §8).
 
-The --config JSON must match the SessionConfig schema:
+The session JSON (``--body`` / ``--config``) must match the SessionConfig schema:
     system_prompt, llm_temperature, llm_max_tokens,
     stt_temperature, tts_voice, tts_speed, tts_temperature,
     interruptibility_percentage
@@ -50,15 +52,18 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
+from pipecat.runner.types import DailyRunnerArguments
 from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy, VADUserTurnStartStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from app.models.config import SessionConfig
 from app.services.help_center_rag_processor import HelpCenterRAGProcessor
 from app.services.openai_key_env import normalize_openai_api_key
-from app.services.interruptibility import build_vad_tuning
+from app.services.interruptibility import build_vad_tuning, interruptibility_min_words_threshold
 from app.services.pipecat_tracing import configure_pipecat_tracing_from_env, tracing_enabled_from_env
 
 AUDIO_IN_HZ = 16000
@@ -73,11 +78,6 @@ def build_daily_params() -> DailyParams:
         audio_in_sample_rate=AUDIO_IN_HZ,
         audio_out_sample_rate=AUDIO_OUT_HZ,
     )
-
-
-def build_system_messages(system_prompt: str) -> list[dict]:
-    """Wrap the user-supplied prompt as an OpenAI system message."""
-    return [{"role": "system", "content": system_prompt}]
 
 
 def build_vad_stop_secs(interruptibility_percentage: int) -> float:
@@ -106,16 +106,37 @@ def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.Inp
     )
 
 
-def build_pipeline_params(*, tracing: bool) -> PipelineParams:
-    """Pipeline-wide audio sample rates and optional metrics when tracing is on."""
-    kw: dict[str, Any] = {
-        "audio_in_sample_rate": AUDIO_IN_HZ,
-        "audio_out_sample_rate": AUDIO_OUT_HZ,
-    }
-    if tracing:
-        kw["enable_metrics"] = True
-        kw["enable_usage_metrics"] = True
-    return PipelineParams(**kw)
+def build_pipeline_params(*, conversation_id: str | None, session_config_json: str | None) -> PipelineParams:
+    """Pipeline-wide audio sample rates; metrics/TTFB always on for RTVI (tracing adds OTLP)."""
+    meta: dict[str, Any] = {}
+    if conversation_id:
+        meta["session_id"] = conversation_id
+    if session_config_json:
+        meta["session_config"] = session_config_json
+
+    return PipelineParams(
+        audio_in_sample_rate=AUDIO_IN_HZ,
+        audio_out_sample_rate=AUDIO_OUT_HZ,
+        enable_metrics=True,
+        enable_usage_metrics=True,
+        report_only_initial_ttfb=True,
+        start_metadata=meta,
+    )
+
+
+def build_user_turn_strategies(interruptibility_percentage: int) -> UserTurnStrategies:
+    """Map interruptibility % to Pipecat user-turn strategies (min words + VAD; no raw transcription short-circuit)."""
+    min_words, allow_interruptions = interruptibility_min_words_threshold(interruptibility_percentage)
+    return UserTurnStrategies(
+        start=[
+            MinWordsUserTurnStartStrategy(
+                min_words=min_words,
+                enable_interruptions=allow_interruptions,
+            ),
+            VADUserTurnStartStrategy(enable_interruptions=allow_interruptions),
+        ],
+        stop=None,
+    )
 
 
 def build_voice_pipeline_task(
@@ -129,10 +150,14 @@ def build_voice_pipeline_task(
 ) -> tuple[DailyTransport, PipelineTask]:
     """Wire Pipecat processors into a ``PipelineTask`` (handlers and runner are ``run_bot``'s job)."""
     vad = build_vad_tuning(config.interruptibility_percentage)
+    turn_strategies = build_user_turn_strategies(config.interruptibility_percentage)
+    min_words, allow_interrupt = interruptibility_min_words_threshold(config.interruptibility_percentage)
     _logger.info(
-        "starting voice bot interruptibility=%s%% vad_stop_secs=%.3f vad_start_secs=%.3f "
-        "preemption_profile=start_vol/conf=%.2f/%.2f",
+        "starting voice bot interruptibility=%s%% min_words_interrupt=%s allow_interruptions=%s "
+        "vad_stop_secs=%.3f vad_start_secs=%.3f preemption=start_vol/conf=%.2f/%.2f",
         config.interruptibility_percentage,
+        min_words,
+        allow_interrupt,
         vad.stop_secs,
         vad.start_secs,
         vad.min_volume,
@@ -158,8 +183,9 @@ def build_voice_pipeline_task(
         api_key=normalize_openai_api_key(os.environ["OPENAI_API_KEY"]),
         settings=OpenAILLMService.Settings(
             model="gpt-4o",
+            system_instruction=config.system_prompt,
             temperature=config.llm_temperature,
-            max_tokens=config.llm_max_tokens,
+            max_completion_tokens=config.llm_max_tokens,
         ),
     )
 
@@ -181,11 +207,12 @@ def build_voice_pipeline_task(
         params=build_cartesia_input_params(config),
     )
 
-    context = LLMContext(messages=build_system_messages(config.system_prompt))
+    context = LLMContext(messages=[])
 
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
+            user_turn_strategies=turn_strategies,
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                     stop_secs=vad.stop_secs,
@@ -216,7 +243,10 @@ def build_voice_pipeline_task(
 
     task_kw: dict[str, Any] = {
         "pipeline": pipeline,
-        "params": build_pipeline_params(tracing=tracing_on),
+        "params": build_pipeline_params(
+            conversation_id=conversation_id,
+            session_config_json=config.model_dump_json(),
+        ),
         "observers": [RTVIObserver(rtvi=rtvi)],
     }
     if tracing_on and otel_ready:
@@ -234,30 +264,16 @@ def build_voice_pipeline_task(
     return transport, task
 
 
-async def run_bot(
-    room_url: str,
-    token: str,
-    config: SessionConfig,
-    *,
-    conversation_id: str | None,
-) -> None:
-    vad = build_vad_tuning(config.interruptibility_percentage)
-    _logger.info(
-        "starting voice bot interruptibility=%s%% vad_stop_secs=%.3f vad_start_secs=%.3f "
-        "preemption_profile=start_vol/conf=%.2f/%.2f",
-        config.interruptibility_percentage,
-        vad.stop_secs,
-        vad.start_secs,
-        vad.min_volume,
-        vad.confidence,
-    )
+async def run_bot(runner_args: DailyRunnerArguments, *, conversation_id: str | None) -> None:
+    """Run the voice bot using Pipecat runner-style session arguments (Daily room + JSON body)."""
+    config = SessionConfig.model_validate(runner_args.body or {})
 
     tracing_on = tracing_enabled_from_env()
     otel_ready = configure_pipecat_tracing_from_env() if tracing_on else False
 
     transport, task = build_voice_pipeline_task(
-        room_url,
-        token,
+        runner_args.room_url,
+        runner_args.token or "",
         config,
         conversation_id=conversation_id,
         tracing_on=tracing_on,
@@ -277,12 +293,23 @@ async def run_bot(
 
 
 if __name__ == "__main__":
+    import json
+
     from pydantic import ValidationError
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--room-url", required=True)
     parser.add_argument("--token", required=True)
-    parser.add_argument("--config", required=True, help="JSON-encoded SessionConfig")
+    parser.add_argument(
+        "--body",
+        default=None,
+        help="JSON object: SessionConfig fields (DailyRunnerArguments.body / Pipecat runner canonical)",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Deprecated alias for --body (JSON-encoded SessionConfig)",
+    )
     parser.add_argument(
         "--conversation-id",
         default=None,
@@ -293,16 +320,16 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     _configure_logging()
-    try:
-        session_cfg = SessionConfig.model_validate_json(args.config)
-    except ValidationError as exc:
-        _logger.error("invalid SessionConfig in subprocess: %s", exc)
+    payload = args.body or args.config
+    if not payload:
+        _logger.error("subprocess requires --body or --config")
         sys.exit(2)
-    asyncio.run(
-        run_bot(
-            args.room_url,
-            args.token,
-            session_cfg,
-            conversation_id=args.conversation_id,
-        )
-    )
+    try:
+        body = json.loads(payload)
+        SessionConfig.model_validate(body)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        _logger.error("invalid SessionConfig JSON in subprocess: %s", exc)
+        sys.exit(2)
+
+    runner_args = DailyRunnerArguments(room_url=args.room_url, token=args.token, body=body)
+    asyncio.run(run_bot(runner_args, conversation_id=args.conversation_id))

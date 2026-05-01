@@ -74,6 +74,7 @@ async def create_session(config: SessionConfig, request: Request) -> VoiceSessio
         room_params = DailyRoomParams(
             properties=DailyRoomProperties(
                 exp=int(time.time()) + 60 * 60,  # 1 hour expiration
+                eject_at_room_exp=True,
             )
         )
 
@@ -105,7 +106,7 @@ async def create_session(config: SessionConfig, request: Request) -> VoiceSessio
         room.url,
         "--token",
         bot_token,
-        "--config",
+        "--body",
         config_json,
         "--conversation-id",
         session_id,

@@ -87,9 +87,9 @@ def test_create_session_provisions_room_and_spawns_bot(client):
         assert "https://mock.daily.co/room123" in cmd
         assert "--token" in cmd
         assert "bot-token-abc" in cmd
-        assert "--config" in cmd
+        assert "--body" in cmd
 
-        config_str = cmd[cmd.index("--config") + 1]
+        config_str = cmd[cmd.index("--body") + 1]
         config_data = json.loads(config_str)
         assert config_data["system_prompt"] == "You are a friendly voice assistant."
 

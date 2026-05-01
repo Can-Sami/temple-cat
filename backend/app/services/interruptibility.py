@@ -36,6 +36,17 @@ def build_interruptibility_policy(percentage: int) -> InterruptibilityPolicy:
     return InterruptibilityPolicy(min_user_speech_ms=300, preemption_aggressiveness="low")
 
 
+def interruptibility_min_words_threshold(percentage: int) -> tuple[int, bool]:
+    """Words required to trigger an interruption while the bot is speaking.
+
+    Maps 100% → 1 word, 0% → ~6 words; ``allow_interruptions`` is False at 0%.
+    """
+    pct = max(0, min(100, int(percentage)))
+    allow_interruptions = pct > 0
+    min_words = max(1, round(6 * (1 - pct / 100.0)))
+    return min_words, allow_interruptions
+
+
 def build_vad_tuning(percentage: int) -> VadTuning:
     """Map interruptibility percentage to concrete VAD parameters (dual knob)."""
     policy = build_interruptibility_policy(percentage)

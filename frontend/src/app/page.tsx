@@ -1,17 +1,19 @@
 "use client";
 
 import { DailyTransport } from "@pipecat-ai/daily-transport";
-import { LogLevel, PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
+import {
+  LogLevel,
+  PipecatClient,
+  type PipecatMetricsData,
+  RTVIEvent,
+} from "@pipecat-ai/client-js";
 import { PipecatClientAudio, PipecatClientProvider, usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { useState, useEffect, useRef } from "react";
 import { SessionConfigForm, SessionConfigPayload } from "../features/session-config/SessionConfigForm";
 import { SessionControlPanel } from "../features/session-control/SessionControlPanel";
 import { BotStateBadge } from "../features/dashboard/BotStateBadge";
 import type { BotState } from "../features/dashboard/voiceBotState";
-import {
-  botStateOnUserStartedSpeaking,
-  shouldStartThinkingOnUserStopped,
-} from "../features/dashboard/voiceBotState";
+import { botStateOnUserStartedSpeaking } from "../features/dashboard/voiceBotState";
 import { LatencyPanel } from "../features/dashboard/LatencyPanel";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
@@ -19,13 +21,23 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
+function extractBackendTtsTtfbMs(data: PipecatMetricsData): number | null {
+  const entries = data.ttfb ?? [];
+  const tts = entries.find((m) => /tts/i.test(String(m.processor)));
+  if (!tts || typeof tts.value !== "number") {
+    return null;
+  }
+  return Math.round(tts.value * 1000);
+}
+
 // Component inside the RTVIProvider
 function InterviewDashboard() {
   const client = usePipecatClient();
   const { createSession, purgeCredentials, resetVoiceSession } = useVoiceSession();
   const [sessionActive, setSessionActive] = useState(false);
   const [botState, setBotState] = useState<BotState>("Listening");
-  const [latencyMs, setLatencyMs] = useState(0);
+  const [wallClockLatencyMs, setWallClockLatencyMs] = useState(0);
+  const [backendTtsTtfbMs, setBackendTtsTtfbMs] = useState<number | null>(null);
   const [transportError, setTransportError] = useState<string | null>(null);
   /** True between BotStartedSpeaking and BotStoppedSpeaking (bot audio playing). */
   const botAudioActiveRef = useRef(false);
@@ -38,7 +50,7 @@ function InterviewDashboard() {
     setBotState("Speaking");
     const start = userSilenceStartRef.current;
     if (start != null) {
-      setLatencyMs(Math.round(performance.now() - start));
+      setWallClockLatencyMs(Math.round(performance.now() - start));
       userSilenceStartRef.current = null;
     }
   });
@@ -54,18 +66,36 @@ function InterviewDashboard() {
   });
 
   useRTVIClientEvent(RTVIEvent.UserStoppedSpeaking, () => {
-    if (!shouldStartThinkingOnUserStopped(botAudioActiveRef.current)) {
+    if (botAudioActiveRef.current) {
+      return;
+    }
+    userSilenceStartRef.current = performance.now();
+  });
+
+  useRTVIClientEvent(RTVIEvent.BotLlmStarted, () => {
+    if (botAudioActiveRef.current) {
       return;
     }
     setBotState("Thinking");
-    userSilenceStartRef.current = performance.now();
+  });
+
+  useRTVIClientEvent(RTVIEvent.BotLlmStopped, () => {
+    setBotState((prev) => (prev === "Thinking" ? "Listening" : prev));
+  });
+
+  useRTVIClientEvent(RTVIEvent.Metrics, (data: PipecatMetricsData) => {
+    const ms = extractBackendTtsTtfbMs(data);
+    if (ms != null) {
+      setBackendTtsTtfbMs(ms);
+    }
   });
 
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
     botAudioActiveRef.current = false;
     setSessionActive(false);
     setBotState("Listening");
-    setLatencyMs(0);
+    setWallClockLatencyMs(0);
+    setBackendTtsTtfbMs(null);
     userSilenceStartRef.current = null;
     resetVoiceSession();
   });
@@ -97,6 +127,8 @@ function InterviewDashboard() {
     setSessionActive(false);
     setBotState("Listening");
     userSilenceStartRef.current = null;
+    setWallClockLatencyMs(0);
+    setBackendTtsTtfbMs(null);
     resetVoiceSession();
     setTransportError(null);
   }
@@ -124,7 +156,10 @@ function InterviewDashboard() {
               <div className="flex flex-wrap items-center gap-3">
                 <BotStateBadge state={botState} />
                 <Separator orientation="vertical" className="hidden h-8 md:block" />
-                <LatencyPanel latencyMs={latencyMs} />
+                <LatencyPanel
+                  backendTtsTtfbMs={backendTtsTtfbMs}
+                  wallClockLatencyMs={wallClockLatencyMs}
+                />
               </div>
             </div>
 

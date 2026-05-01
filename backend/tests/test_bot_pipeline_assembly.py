@@ -46,16 +46,20 @@ def test_build_daily_params_matches_transport_contract():
     assert dp.audio_out_sample_rate == AUDIO_OUT_HZ
 
 
-def test_build_pipeline_params_metrics_only_when_tracing():
-    off = build_pipeline_params(tracing=False)
-    assert off.enable_metrics is False
-    assert off.enable_usage_metrics is False
-    assert off.audio_in_sample_rate == AUDIO_IN_HZ
-    assert off.audio_out_sample_rate == AUDIO_OUT_HZ
+def test_build_pipeline_params_metrics_always_on_with_rtvi_ttfb_metadata():
+    cfg_json = '{"system_prompt":"ping"}'
+    p = build_pipeline_params(conversation_id="sess-a", session_config_json=cfg_json)
+    assert p.enable_metrics is True
+    assert p.enable_usage_metrics is True
+    assert p.report_only_initial_ttfb is True
+    assert p.audio_in_sample_rate == AUDIO_IN_HZ
+    assert p.audio_out_sample_rate == AUDIO_OUT_HZ
+    assert p.start_metadata["session_id"] == "sess-a"
+    assert p.start_metadata["session_config"] == cfg_json
 
-    on = build_pipeline_params(tracing=True)
-    assert on.enable_metrics is True
-    assert on.enable_usage_metrics is True
+    bare = build_pipeline_params(conversation_id=None, session_config_json=None)
+    assert bare.enable_metrics is True
+    assert bare.start_metadata == {}
 
 
 def test_build_cartesia_input_params_uses_generation_config():
@@ -146,6 +150,8 @@ def test_build_voice_pipeline_task_processor_order_and_daily_params(voice_env):
     llm_settings = mock_llm_cls.call_args.kwargs["settings"]
     assert llm_settings.model == "gpt-4o"
     assert llm_settings.temperature == cfg.llm_temperature
+    assert llm_settings.system_instruction == cfg.system_prompt
+    assert llm_settings.max_completion_tokens == cfg.llm_max_tokens
 
     mock_ct_cls.assert_called_once()
     ct_kw = mock_ct_cls.call_args.kwargs

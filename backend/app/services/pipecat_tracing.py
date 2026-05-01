@@ -1,7 +1,7 @@
 """Optional Pipecat OpenTelemetry bootstrap for voice-bot subprocesses.
 
 Follows Pipecat guidance: initialize the OTEL SDK with an exporter, then enable
-tracing on ``PipelineTask`` with metrics enabled.
+tracing on ``PipelineTask``. RTVI/TTFB metrics are enabled on the task separately for all sessions.
 
 References:
 - https://docs.pipecat.ai/api-reference/server/utilities/opentelemetry

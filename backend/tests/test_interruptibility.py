@@ -1,4 +1,8 @@
-from app.services.interruptibility import build_interruptibility_policy, build_vad_tuning
+from app.services.interruptibility import (
+    build_interruptibility_policy,
+    build_vad_tuning,
+    interruptibility_min_words_threshold,
+)
 
 
 def test_high_percentage_allows_fast_preemption():
@@ -28,3 +32,10 @@ def test_vad_tuning_medium_splits_the_difference():
     hi = build_vad_tuning(80)
     lo = build_vad_tuning(20)
     assert hi.start_secs <= mid.start_secs <= lo.start_secs
+
+
+def test_interruptibility_min_words_extremes():
+    w100, a100 = interruptibility_min_words_threshold(100)
+    assert w100 == 1 and a100 is True
+    w0, a0 = interruptibility_min_words_threshold(0)
+    assert w0 == 6 and a0 is False
