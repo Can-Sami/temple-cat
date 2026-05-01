@@ -5,6 +5,19 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat </dev/null >/dev/tcp/127.0.0.1/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging: *default-logging
+
   frontend:
     build:
       context: ./frontend
@@ -50,8 +63,12 @@ services:
     environment:
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
       - BOT_LOG_DIR=/app/logs
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
     volumes:
       - bot_logs:/app/logs
+    depends_on:
+      qdrant:
+        condition: service_healthy
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
@@ -64,6 +81,7 @@ services:
 
   dozzle:
     image: amir20/dozzle:latest
+    profiles: ["debug"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
@@ -74,3 +92,4 @@ services:
 
 volumes:
   bot_logs:
+  qdrant_data:

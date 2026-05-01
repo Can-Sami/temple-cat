@@ -90,7 +90,7 @@ Expected output:
 NAME        IMAGE     STATUS                   PORTS
 frontend    ...       running                  0.0.0.0:3000->3000/tcp
 backend     ...       running (healthy)        0.0.0.0:8000->8000/tcp
-qdrant      ...       running (healthy)        0.0.0.0:6333->6333/tcp
+qdrant      ...       running (healthy)        6333-6334/tcp
 ```
 
 Point out:

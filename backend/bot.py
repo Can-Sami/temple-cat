@@ -52,6 +52,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
 from app.services.interruptibility import build_interruptibility_policy
+from app.services.rag_processor import HelpCenterRAGInjector
 
 AUDIO_IN_HZ = 16000
 AUDIO_OUT_HZ = 24000
@@ -207,6 +208,7 @@ async def run_bot(room_url: str, token: str, config: dict[str, Any]) -> None:
             transport.input(),
             rtvi,
             stt,
+            HelpCenterRAGInjector(),
             context_aggregator.user(),
             llm,
             tts,

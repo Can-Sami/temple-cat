@@ -1,0 +1,34 @@
+[
+  {
+    "question": "What is the refund policy?",
+    "answer": "Refunds are available within 30 days of purchase for annual plans. Monthly plans are not refundable after the first 7 days. To request a refund, contact support with your invoice ID."
+  },
+  {
+    "question": "How do I reset my password?",
+    "answer": "Go to the login page, click “Forgot password”, and follow the emailed link to set a new password. Password reset links expire after 30 minutes."
+  },
+  {
+    "question": "Do you offer SOC 2 compliance?",
+    "answer": "Yes. We maintain SOC 2 Type II compliance. You can request the latest report via support after signing an NDA."
+  },
+  {
+    "question": "What data is stored for voice sessions?",
+    "answer": "We store minimal metadata required to operate the service (session IDs, timestamps, and operational logs). Audio is streamed for real-time processing and is not stored by default."
+  },
+  {
+    "question": "How can I contact support?",
+    "answer": "Email support@example.com or use the in-app help widget. Standard hours are Monday–Friday, 9am–5pm ET, with best-effort response within 1 business day."
+  },
+  {
+    "question": "Is there an SLA?",
+    "answer": "Enterprise customers can purchase an SLA with uptime and response-time guarantees. Contact sales for details."
+  },
+  {
+    "question": "Where are you hosted?",
+    "answer": "We run on AWS. Primary workloads are hosted in us-east-1, with regional options available for enterprise deployments."
+  },
+  {
+    "question": "How do I cancel my subscription?",
+    "answer": "You can cancel from Account Settings → Billing → Cancel subscription. Your plan remains active until the end of the current billing period."
+  }
+]

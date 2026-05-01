@@ -1,3 +1,6 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import Body
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -9,8 +12,22 @@ from app.models.config import SessionConfig
 from app.services.cors_origins import cors_allow_origins_from_env
 from app.services.rate_limit import validate_config_limiter_from_env
 from app.services.request_identity import client_ip
+from app.services.retrieval_seed import seed_help_center_collection
 
-app = FastAPI(title="Temple-cat Backend")
+_logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        await seed_help_center_collection()
+    except Exception:
+        # RAG is strictly optional; never prevent the API from starting.
+        _logger.exception("qdrant seed failed; continuing without rag")
+    yield
+
+
+app = FastAPI(title="Temple-cat Backend", lifespan=lifespan)
 
 _validate_config_limiter = validate_config_limiter_from_env()
 
