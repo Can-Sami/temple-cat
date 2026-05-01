@@ -1,6 +1,6 @@
 # DEPLOY.md — Temple-cat Voice AI Deployment Runbook
 
-One-page checklist: **region / AMI / instance**, **security group ports**, **Compose wiring**, **logs**, **reboot/restart**. Optional OpenTelemetry details are in **§8**.
+One-page checklist: **region / AMI / instance**, **security group ports**, **Compose wiring**, **logs**, **reboot/restart**. Optional OpenTelemetry details are in **§8**. Static analysis (SonarCloud / SonarQube via GitHub Actions) is **§9**.
 
 ## 1. Target Infrastructure
 
@@ -18,7 +18,7 @@ One-page checklist: **region / AMI / instance**, **security group ports**, **Com
 
 ## 2. AWS Security Group — Inbound Ports
 
-Public HTTP/S is **not** exposed on the instance Security Group. Use **Cloudflare Tunnel** (or ngrok) on the host so browsers hit Cloudflare’s edge; `cloudflared` forwards to **`http://127.0.0.1:3000`** locally.
+Public HTTP/S is **not** exposed on the instance Security Group. Use **Cloudflare Tunnel** (or ngrok) on the host so browsers hit Cloudflare’s edge; `cloudflared` forwards to **`http://127.0.0.1:3000`** locally. Concrete **`cloudflared`** commands are in **§10**.
 
 | Port | Protocol | Source | Purpose |
 |---|---|---|---|
@@ -188,7 +188,33 @@ Each voice session passes **`--conversation-id`** (same as API `session_id`) int
 
 ---
 
-## 9. Cloudflare Tunnel Setup (Recommended)
+## 9. SonarCloud / SonarQube (GitHub Actions)
+
+Continuous analysis runs from **`.github/workflows/sonar.yml`** on **push** and **pull_request** to **`master`** / **`main`** using the official **[SonarSource `sonarqube-scan-action` v6](https://github.com/SonarSource/sonarqube-scan-action)**. Scan settings live in **`sonar-project.properties`** at the repo root (`sonar.projectKey`, `sonar.sources`, exclusions such as `**/build/**`, etc.).
+
+### SonarQube Cloud (hosted)
+
+| GitHub setting | Type | Purpose |
+|---|---|---|
+| **`SONAR_TOKEN`** | Repository **secret** | User token from SonarCloud (**My Account → Security**). Used by the scanner to authenticate. |
+| **`SONAR_ORGANIZATION`** | Repository **variable** | Your SonarCloud **organization key** (shown in URLs and org settings). Passed as `-Dsonar.organization=…`. |
+
+Do **not** create **`SONAR_HOST_URL`** for SonarCloud unless you use self-hosted SonarQube (below). An **empty** `SONAR_HOST_URL` secret overrides the default host and breaks the scan.
+
+After each run, open the project in **[SonarQube Cloud](https://sonarcloud.io)** for quality gate status, issues, coverage over time, and **Security Hotspots** (hotspots require explicit review in the UI).
+
+### Self-hosted SonarQube Server
+
+| GitHub setting | Type | Purpose |
+|---|---|---|
+| **`SONAR_TOKEN`** | Repository **secret** | SonarQube user token. |
+| **`SONAR_HOST_URL`** | Repository **secret** | Full server base URL with scheme, e.g. **`https://sonarqube.example.com`** (no trailing slash). |
+
+Do **not** set **`SONAR_ORGANIZATION`** when using only self-hosted SonarQube; the workflow treats Cloud vs Server by presence of organization vs host URL.
+
+---
+
+## 10. Cloudflare Tunnel Setup (Recommended)
 
 With **only SSH open** in AWS, run `cloudflared` **on the EC2 instance** (systemd service or `tmux`). Evaluators use the tunnel URL; they never need port 3000 on the Security Group.
 
