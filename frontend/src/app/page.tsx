@@ -3,10 +3,15 @@
 import { DailyTransport } from "@pipecat-ai/daily-transport";
 import { LogLevel, PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { PipecatClientAudio, PipecatClientProvider, usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { SessionConfigForm, SessionConfigPayload } from "../features/session-config/SessionConfigForm";
 import { SessionControlPanel } from "../features/session-control/SessionControlPanel";
-import { BotStateBadge, BotState } from "../features/dashboard/BotStateBadge";
+import { BotStateBadge } from "../features/dashboard/BotStateBadge";
+import type { BotState } from "../features/dashboard/voiceBotState";
+import {
+  botStateOnUserStartedSpeaking,
+  shouldStartThinkingOnUserStopped,
+} from "../features/dashboard/voiceBotState";
 import { LatencyPanel } from "../features/dashboard/LatencyPanel";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
@@ -23,9 +28,12 @@ function InterviewDashboard() {
   const [latencyMs, setLatencyMs] = useState(0);
   const [userSilenceStartTime, setUserSilenceStartTime] = useState<number | null>(null);
   const [transportError, setTransportError] = useState<string | null>(null);
+  /** True between BotStartedSpeaking and BotStoppedSpeaking (bot audio playing). */
+  const botAudioActiveRef = useRef(false);
 
   // RTVI Event listeners to drive state machine deterministically based on pipeline emitted frames
   useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => {
+    botAudioActiveRef.current = true;
     setBotState("Speaking");
     // Calculate round trip latency if we were tracking user silence
     if (userSilenceStartTime) {
@@ -35,23 +43,29 @@ function InterviewDashboard() {
   });
 
   useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, () => {
+    botAudioActiveRef.current = false;
     setBotState("Listening");
   });
 
   useRTVIClientEvent(RTVIEvent.UserStartedSpeaking, () => {
-    setBotState("Listening");
+    setBotState(botStateOnUserStartedSpeaking(botAudioActiveRef.current));
     setUserSilenceStartTime(null); // Interruption cancels the timer
   });
 
   useRTVIClientEvent(RTVIEvent.UserStoppedSpeaking, () => {
+    if (!shouldStartThinkingOnUserStopped(botAudioActiveRef.current)) {
+      return;
+    }
     setBotState("Thinking");
     setUserSilenceStartTime(performance.now());
   });
 
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
+    botAudioActiveRef.current = false;
     setSessionActive(false);
     setBotState("Listening");
     setLatencyMs(0);
+    setUserSilenceStartTime(null);
     resetVoiceSession();
   });
 
@@ -78,7 +92,10 @@ function InterviewDashboard() {
 
   async function handleStopSession() {
     await client?.disconnect();
+    botAudioActiveRef.current = false;
     setSessionActive(false);
+    setBotState("Listening");
+    setUserSilenceStartTime(null);
     resetVoiceSession();
     setTransportError(null);
   }

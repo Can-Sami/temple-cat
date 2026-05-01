@@ -17,6 +17,11 @@ test("renders thinking state", () => {
   expect(screen.getByText(/Thinking/i)).toBeInTheDocument();
 });
 
+test("renders interrupted state", () => {
+  render(<BotStateBadge state="Interrupted" />);
+  expect(screen.getByText(/Interrupted/i)).toBeInTheDocument();
+});
+
 test("renders latency value in ms", () => {
   render(<LatencyPanel latencyMs={245} />);
   expect(screen.getByText(/245 ms/i)).toBeInTheDocument();

@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 
-export type BotState = "Listening" | "Thinking" | "Speaking";
+import type { BotState } from "./voiceBotState";
+
+export type { BotState };
 
 interface Props {
   state: BotState;
@@ -12,10 +14,16 @@ export function BotStateBadge({ state }: Props) {
       ? "default"
       : state === "Thinking"
         ? "secondary"
-        : "outline";
+        : state === "Interrupted"
+          ? "destructive"
+          : "outline";
 
   return (
-    <Badge aria-label="Bot State" aria-live="polite" variant={variant}>
+    <Badge
+      aria-label={state === "Interrupted" ? "Bot State: interrupted — you spoke over the bot" : "Bot State"}
+      aria-live={state === "Interrupted" ? "assertive" : "polite"}
+      variant={variant}
+    >
       {state}
     </Badge>
   );
