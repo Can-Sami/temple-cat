@@ -1,5 +1,7 @@
 import { ReactNode } from "react";
 
+import "./globals.css";
+
 import { QueryProvider } from "@/providers/query-provider";
 
 export const metadata = {
