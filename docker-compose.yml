@@ -47,11 +47,19 @@ services:
     env_file:
       - path: .env
         required: false
+    depends_on:
+      qdrant:
+        condition: service_healthy
     environment:
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
       - BOT_LOG_DIR=/app/logs
       # Bot subprocess inherits env; localhost:4317 would hit this container, not Jaeger.
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-help_center}
+      - QDRANT_TOP_K=${QDRANT_TOP_K:-3}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - RAG_ENABLED=${RAG_ENABLED:-1}
     volumes:
       - bot_logs:/app/logs
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
@@ -61,6 +69,19 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     logging: *default-logging
 
@@ -87,3 +108,4 @@ services:
 
 volumes:
   bot_logs:
+  qdrant_data:

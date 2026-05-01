@@ -1,8 +1,4 @@
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import patch
-
-from app.main import app
 
 
 def make_base():
@@ -18,8 +14,7 @@ def make_base():
     }
 
 
-def test_validate_config_valid_payload():
-    client = TestClient(app)
+def test_validate_config_valid_payload(client):
     resp = client.post("/api/validate-config", json=make_base())
     assert resp.status_code == 200
     data = resp.json()
@@ -27,25 +22,22 @@ def test_validate_config_valid_payload():
     assert "message" in data and isinstance(data["message"], str)
 
 
-def test_validate_config_invalid_payload_bounds():
-    client = TestClient(app)
+def test_validate_config_invalid_payload_bounds(client):
     data = make_base()
     data["interruptibility_percentage"] = 120
     resp = client.post("/api/validate-config", json=data)
     assert resp.status_code == 422
 
 
-def test_validate_config_unknown_field():
-    client = TestClient(app)
+def test_validate_config_unknown_field(client):
     data = make_base()
     data["unexpected_field"] = "surprise"
     resp = client.post("/api/validate-config", json=data)
     assert resp.status_code == 422
 
 
-@patch("app.main._validate_config_limiter")
-def test_validate_config_returns_429_when_rate_limited(mock_lim):
-    mock_lim.allow.return_value = False
-    client = TestClient(app)
-    resp = client.post("/api/validate-config", json=make_base())
-    assert resp.status_code == 429
+def test_validate_config_returns_429_when_rate_limited(client):
+    with patch("app.main._validate_config_limiter") as mock_lim:
+        mock_lim.allow.return_value = False
+        resp = client.post("/api/validate-config", json=make_base())
+        assert resp.status_code == 429

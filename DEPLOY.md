@@ -1,6 +1,6 @@
 # DEPLOY.md — Temple-cat Voice AI Deployment Runbook
 
-One-page checklist: **region / AMI / instance**, **security group ports**, **Compose wiring**, **logs**, **reboot/restart**. Optional OpenTelemetry details are in **§8**. Static analysis (SonarCloud / SonarQube via GitHub Actions) is **§9**.
+One-page checklist: **region / AMI / instance**, **security group ports**, **Compose wiring**, **logs**, **reboot/restart**. Help Center Qdrant RAG is **§8**; optional OpenTelemetry details are **§9**. Static analysis (SonarCloud / SonarQube via GitHub Actions) is **§10**.
 
 ## 1. Target Infrastructure
 
@@ -12,13 +12,13 @@ One-page checklist: **region / AMI / instance**, **security group ports**, **Com
 | Instance type | **`c7i-flex.large`** |
 | Storage | 20 GiB gp3 root volume (adjust as needed) |
 
-**Optional add-on (Freya brief — pick one):** This project implements **Pipecat OpenTelemetry → Jaeger**, not Qdrant/RAG. Jaeger is behind Compose profile **`otel`**; see **§8**. Default `docker compose up -d` runs only frontend, backend, and Dozzle.
+**Optional add-ons (Freya brief):** This repo implements **both**: **Help Center Qdrant RAG** (default stack — seeds FAQ vectors on backend startup; **§8**) **and** **Pipecat OpenTelemetry → Jaeger** (Compose profile **`otel`**; **§9**).
 
 ---
 
 ## 2. AWS Security Group — Inbound Ports
 
-Public HTTP/S is **not** exposed on the instance Security Group. Use **Cloudflare Tunnel** (or ngrok) on the host so browsers hit Cloudflare’s edge; `cloudflared` forwards to **`http://127.0.0.1:3000`** locally. Concrete **`cloudflared`** commands are in **§10**.
+Public HTTP/S is **not** exposed on the instance Security Group. Use **Cloudflare Tunnel** (or ngrok) on the host so browsers hit Cloudflare’s edge; `cloudflared` forwards to **`http://127.0.0.1:3000`** locally. Concrete **`cloudflared`** commands are in **§11**.
 
 | Port | Protocol | Source | Purpose |
 |---|---|---|---|
@@ -72,15 +72,23 @@ docker compose ps
 │   Frontend   │─────▶│     Backend                  │
 │  (Next.js)   │      │  (FastAPI + bot subprocesses) │
 │  :3000       │      │  :8000, bot logs → volume    │
-└──────────────┘      └──────────────────────────────┘
-        │                           │
+└──────────────┘      └───────────────┬──────────────┘
+        │                             │
+        │                             │  HTTP (embeddings + vector search)
+        │                             ▼
+        │                     ┌───────────────┐
+        │                     │    Qdrant     │
+        │                     │  (vectors)    │
+        │                     └───────────────┘
+        │
         └──────── Daily.co ─────────┘  (WebRTC — external)
 ```
 
+- **Qdrant** stores the Help Center FAQ embeddings; **backend** waits for **qdrant** (`service_healthy`) before marking itself healthy. Data persists in the **`qdrant_data`** named volume.
 - **Frontend** depends on **backend** (`service_healthy`) — waits for the backend health check to pass before starting.
 - **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC. Stdout/stderr for each bot is appended to **`/app/logs/bot-<session_id>.log`** inside the backend container (persisted via the `bot_logs` named volume).
 - **Dozzle** (optional) listens on **127.0.0.1:8080** only — use SSH port-forward or inspect logs via `docker compose logs`.
-- **Jaeger v2 (OpenTelemetry)** — optional Compose profile **`otel`**. Run `docker compose --profile otel up -d` to start the all-in-one Jaeger v2 image alongside the stack; OTLP gRPC on **`127.0.0.1:4317`**, UI on **`127.0.0.1:16686`**. Set **`ENABLE_TRACING=1`** and **`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`** on the **backend** service (same Docker network). See **§8** below. Upgrading from Jaeger v1 is covered in the [Jaeger v2 migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view) and [Jaeger docs](https://www.jaegertracing.io/docs/latest/getting-started/).
+- **Jaeger v2 (OpenTelemetry)** — optional Compose profile **`otel`**. Run `docker compose --profile otel up -d` to start the all-in-one Jaeger v2 image alongside the stack; OTLP gRPC on **`127.0.0.1:4317`**, UI on **`127.0.0.1:16686`**. Set **`ENABLE_TRACING=1`** and **`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`** on the **backend** service (same Docker network). See **§9** below. Upgrading from Jaeger v1 is covered in the [Jaeger v2 migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view) and [Jaeger docs](https://www.jaegertracing.io/docs/latest/getting-started/).
 
 If the frontend logs **“Could not find a production build in the '.next' directory”** and shows **`next start`**, you are not running the standalone image (stale image, or a bind-mount replaced `/app` with raw source). Rebuild with **`docker compose build --no-cache frontend`** and **do not** mount `./frontend` over `/app` in production. The stack runs **`node server.js`** from the image build output.
 
@@ -97,6 +105,7 @@ docker compose logs -f
 # View logs for a specific service
 docker compose logs -f backend
 docker compose logs -f frontend
+docker compose logs -f qdrant
 
 # Per-session Pipecat bots (same host as backend container):
 docker compose exec backend ls -la /app/logs
@@ -155,12 +164,25 @@ All keys are loaded from `.env` at the repo root. See `.env.example` for the ful
 | `OTEL_EXPORTER_OTLP_INSECURE` | optional | `true`/`false` for gRPC TLS (default `true` for local Jaeger). |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | optional | Set to `http/protobuf` for HTTP OTLP (e.g. Langfuse). |
 | `OTEL_CONSOLE_EXPORT` | optional | Set `1` to print spans to stdout (debug). |
+| `RAG_ENABLED` | optional | `1` / `0` — enable Help Center retrieval in **`bot.py`** (default **`1`** in Compose). |
+| `QDRANT_URL` | optional | Qdrant REST base URL; default **`http://qdrant:6333`** inside Compose. |
+| `QDRANT_COLLECTION` | optional | Collection name (default **`help_center`**). |
+| `QDRANT_TOP_K` | optional | Hits merged into the LLM system context per user turn (default **`3`**). |
+| `EMBEDDINGS_MODEL` | optional | OpenAI embeddings model for seed + query (default **`text-embedding-3-small`**). |
+| `EMBEDDINGS_VECTOR_SIZE` | optional | Override vector dimension when using reduced embedding sizes. |
 
 > ⚠️ **Never commit `.env` to git.** Only `.env.example` is committed.
 
 ---
 
-## 8. OpenTelemetry / Jaeger (optional addon)
+## 8. Help Center RAG (Qdrant)
+
+- **Compose:** `qdrant` runs with the default stack (no profile). Data: **`qdrant_data`** volume.
+- **Startup:** The backend **lifespan** hook loads `backend/app/data/help_center_seed.json`, embeds questions via OpenAI, and **upserts** into Qdrant (idempotent). Failures are logged and the API still serves traffic.
+- **Voice path:** `HelpCenterRAGProcessor` sits between the user context aggregator and **`OpenAILLMService`**, injecting a second **system** message with top **`QDRANT_TOP_K`** hits for each user turn. Set **`RAG_ENABLED=0`** to disable retrieval without removing Qdrant.
+- **Ports:** Qdrant listens on **6333** inside the network; the Compose file does **not** publish it to the host by default (EC2 security groups need only SSH + tunnel as before).
+
+## 9. OpenTelemetry / Jaeger (optional addon)
 
 Pipecat emits hierarchical traces (conversation → turn → STT / LLM / TTS) when tracing is enabled.
 
@@ -188,7 +210,7 @@ Each voice session passes **`--conversation-id`** (same as API `session_id`) int
 
 ---
 
-## 9. SonarCloud / SonarQube (GitHub Actions)
+## 10. SonarCloud / SonarQube (GitHub Actions)
 
 Continuous analysis runs from **`.github/workflows/sonar.yml`** on **push** and **pull_request** to **`master`** / **`main`** using the official **[SonarSource `sonarqube-scan-action` v6](https://github.com/SonarSource/sonarqube-scan-action)**. Scan settings live in **`sonar-project.properties`** at the repo root (`sonar.projectKey`, `sonar.sources`, exclusions such as `**/build/**`, etc.).
 
@@ -214,7 +236,7 @@ Do **not** set **`SONAR_ORGANIZATION`** when using only self-hosted SonarQube; t
 
 ---
 
-## 10. Cloudflare Tunnel Setup (Recommended)
+## 11. Cloudflare Tunnel Setup (Recommended)
 
 With **only SSH open** in AWS, run `cloudflared` **on the EC2 instance** (systemd service or `tmux`). Evaluators use the tunnel URL; they never need port 3000 on the Security Group.
 

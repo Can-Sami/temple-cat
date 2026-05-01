@@ -94,6 +94,7 @@ def test_build_voice_pipeline_task_processor_order_and_daily_params(voice_env):
     mock_agg.assistant.return_value = mock_assistant
 
     mock_rtvi = MagicMock(name="RTVIProcessor")
+    mock_rag = MagicMock(name="HelpCenterRAGProcessor")
 
     mock_pipeline_inst = MagicMock(name="pipeline")
 
@@ -111,17 +112,18 @@ def test_build_voice_pipeline_task_processor_order_and_daily_params(voice_env):
                         with patch("bot.LLMContextAggregatorPair") as mock_pair_cls:
                             mock_pair_cls.return_value = mock_agg
                             with patch("bot.RTVIProcessor", return_value=mock_rtvi):
-                                with patch("bot.Pipeline", return_value=mock_pipeline_inst) as mock_pipeline_cls:
-                                    with patch("bot.PipelineTask") as mock_task_cls:
-                                        mock_task_cls.return_value = MagicMock(name="PipelineTask")
-                                        transport, task = build_voice_pipeline_task(
-                                            "https://example.daily.co/r",
-                                            "tok",
-                                            cfg,
-                                            conversation_id=None,
-                                            tracing_on=False,
-                                            otel_ready=False,
-                                        )
+                                with patch("bot.HelpCenterRAGProcessor", return_value=mock_rag):
+                                    with patch("bot.Pipeline", return_value=mock_pipeline_inst) as mock_pipeline_cls:
+                                        with patch("bot.PipelineTask") as mock_task_cls:
+                                            mock_task_cls.return_value = MagicMock(name="PipelineTask")
+                                            transport, task = build_voice_pipeline_task(
+                                                "https://example.daily.co/r",
+                                                "tok",
+                                                cfg,
+                                                conversation_id=None,
+                                                tracing_on=False,
+                                                otel_ready=False,
+                                            )
 
     assert transport is mock_transport
     assert task is mock_task_cls.return_value
@@ -156,6 +158,7 @@ def test_build_voice_pipeline_task_processor_order_and_daily_params(voice_env):
         mock_rtvi,
         mock_stt,
         mock_user,
+        mock_rag,
         mock_llm,
         mock_tts,
         mock_transport_out,
@@ -186,17 +189,18 @@ def test_build_voice_pipeline_task_tracing_passes_otel_flags(voice_env):
                             inner.assistant.return_value = MagicMock()
                             mock_pair_cls.return_value = inner
                             with patch("bot.RTVIProcessor", return_value=MagicMock()):
-                                with patch("bot.Pipeline", return_value=MagicMock()):
-                                    with patch("bot.PipelineTask") as mock_task_cls:
-                                        mock_task_cls.return_value = MagicMock()
-                                        build_voice_pipeline_task(
-                                            "https://x",
-                                            "t",
-                                            cfg,
-                                            conversation_id="sess-1",
-                                            tracing_on=True,
-                                            otel_ready=True,
-                                        )
+                                with patch("bot.HelpCenterRAGProcessor", return_value=MagicMock()):
+                                    with patch("bot.Pipeline", return_value=MagicMock()):
+                                        with patch("bot.PipelineTask") as mock_task_cls:
+                                            mock_task_cls.return_value = MagicMock()
+                                            build_voice_pipeline_task(
+                                                "https://x",
+                                                "t",
+                                                cfg,
+                                                conversation_id="sess-1",
+                                                tracing_on=True,
+                                                otel_ready=True,
+                                            )
 
     kwargs = mock_task_cls.call_args.kwargs
     assert kwargs["enable_tracing"] is True

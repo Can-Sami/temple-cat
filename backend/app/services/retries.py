@@ -4,6 +4,7 @@ import os
 from typing import Awaitable, Callable, TypeVar
 
 import aiohttp
+import httpx
 
 T = TypeVar("T")
 
@@ -23,6 +24,18 @@ def retry_sync(fn: Callable[[], T], max_attempts: int) -> T:
             last_error = exc
     assert last_error is not None  # always set if max_attempts >= 1
     raise last_error
+
+
+def httpx_retryable(exc: BaseException) -> bool:
+    """Whether an httpx/API failure is worth retrying (Qdrant, OpenAI REST)."""
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code >= 500 or code == 429
+    return False
 
 
 def daily_api_retryable(exc: BaseException) -> bool:

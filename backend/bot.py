@@ -6,6 +6,9 @@ Usage:
 
 OpenTelemetry (optional): set ENABLE_TRACING=1 and OTLP env vars; see .env.example and DEPLOY.md.
 
+Help Center RAG (optional): when RAG_ENABLED=1 (default in Compose), each user turn retrieves top Q&A
+from Qdrant and injects a second system message before the LLM (see DEPLOY.md §8).
+
 The --config JSON must match the SessionConfig schema:
     system_prompt, llm_temperature, llm_max_tokens,
     stt_temperature, tts_voice, tts_speed, tts_temperature,
@@ -53,6 +56,8 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
 from app.models.config import SessionConfig
+from app.services.help_center_rag_processor import HelpCenterRAGProcessor
+from app.services.openai_key_env import normalize_openai_api_key
 from app.services.interruptibility import build_vad_tuning
 from app.services.pipecat_tracing import configure_pipecat_tracing_from_env, tracing_enabled_from_env
 
@@ -150,7 +155,7 @@ def build_voice_pipeline_task(
     )
 
     llm = OpenAILLMService(
-        api_key=os.environ["OPENAI_API_KEY"],
+        api_key=normalize_openai_api_key(os.environ["OPENAI_API_KEY"]),
         settings=OpenAILLMService.Settings(
             model="gpt-4o",
             temperature=config.llm_temperature,
@@ -193,6 +198,7 @@ def build_voice_pipeline_task(
     )
 
     rtvi = RTVIProcessor()
+    help_center_rag = HelpCenterRAGProcessor()
 
     pipeline = Pipeline(
         [
@@ -200,6 +206,7 @@ def build_voice_pipeline_task(
             rtvi,
             stt,
             context_aggregator.user(),
+            help_center_rag,
             llm,
             tts,
             transport.output(),

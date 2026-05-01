@@ -26,19 +26,20 @@ function InterviewDashboard() {
   const [sessionActive, setSessionActive] = useState(false);
   const [botState, setBotState] = useState<BotState>("Listening");
   const [latencyMs, setLatencyMs] = useState(0);
-  const [userSilenceStartTime, setUserSilenceStartTime] = useState<number | null>(null);
   const [transportError, setTransportError] = useState<string | null>(null);
   /** True between BotStartedSpeaking and BotStoppedSpeaking (bot audio playing). */
   const botAudioActiveRef = useRef(false);
+  /** Must be a ref — RTVI callbacks do not reliably see fresh React state for latency math. */
+  const userSilenceStartRef = useRef<number | null>(null);
 
   // RTVI Event listeners to drive state machine deterministically based on pipeline emitted frames
   useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => {
     botAudioActiveRef.current = true;
     setBotState("Speaking");
-    // Calculate round trip latency if we were tracking user silence
-    if (userSilenceStartTime) {
-      setLatencyMs(Math.round(performance.now() - userSilenceStartTime));
-      setUserSilenceStartTime(null);
+    const start = userSilenceStartRef.current;
+    if (start != null) {
+      setLatencyMs(Math.round(performance.now() - start));
+      userSilenceStartRef.current = null;
     }
   });
 
@@ -49,7 +50,7 @@ function InterviewDashboard() {
 
   useRTVIClientEvent(RTVIEvent.UserStartedSpeaking, () => {
     setBotState(botStateOnUserStartedSpeaking(botAudioActiveRef.current));
-    setUserSilenceStartTime(null); // Interruption cancels the timer
+    userSilenceStartRef.current = null;
   });
 
   useRTVIClientEvent(RTVIEvent.UserStoppedSpeaking, () => {
@@ -57,7 +58,7 @@ function InterviewDashboard() {
       return;
     }
     setBotState("Thinking");
-    setUserSilenceStartTime(performance.now());
+    userSilenceStartRef.current = performance.now();
   });
 
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
@@ -65,7 +66,7 @@ function InterviewDashboard() {
     setSessionActive(false);
     setBotState("Listening");
     setLatencyMs(0);
-    setUserSilenceStartTime(null);
+    userSilenceStartRef.current = null;
     resetVoiceSession();
   });
 
@@ -95,7 +96,7 @@ function InterviewDashboard() {
     botAudioActiveRef.current = false;
     setSessionActive(false);
     setBotState("Listening");
-    setUserSilenceStartTime(null);
+    userSilenceStartRef.current = null;
     resetVoiceSession();
     setTransportError(null);
   }

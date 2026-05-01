@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Body
@@ -14,8 +15,16 @@ from app.models.config import SessionConfig
 from app.services.cors_origins import cors_allow_origins_from_env
 from app.services.rate_limit import validate_config_limiter_from_env
 from app.services.request_identity import client_ip
+from app.services.retrieval_seed import seed_help_center_safe
 
-app = FastAPI(title="Temple-cat Backend")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await seed_help_center_safe()
+    yield
+
+
+app = FastAPI(title="Temple-cat Backend", lifespan=lifespan)
 
 _logger = logging.getLogger(__name__)
 _validate_config_limiter = validate_config_limiter_from_env()
