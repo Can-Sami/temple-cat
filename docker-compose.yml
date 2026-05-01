@@ -50,6 +50,8 @@ services:
     environment:
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
       - BOT_LOG_DIR=/app/logs
+      # Bot subprocess inherits env; localhost:4317 would hit this container, not Jaeger.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
     volumes:
       - bot_logs:/app/logs
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]

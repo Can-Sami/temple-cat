@@ -159,6 +159,8 @@ Pipecat emits hierarchical traces (conversation → turn → STT / LLM / TTS) wh
 
 Compose runs **Jaeger v2** (`cr.jaegertracing.io/jaegertracing/jaeger`), which accepts OTLP on port **4317** the same way as the old all-in-one image; no application changes are required beyond pulling the new image. Broader v1→v2 deployment changes (Kubernetes, storage, flags) are described in the [migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view).
 
+In Jaeger UI, if you only see the **`jaeger`** service (internal telemetry) and not **`temple-cat-voice-bot`**, the backend container was probably still using OTLP **`localhost:4317`** (wrong inside Docker). **`docker-compose.yml`** sets **`OTEL_EXPORTER_OTLP_ENDPOINT`** to **`http://jaeger:4317`** by default when you omit it from `.env`; restart backend after enabling tracing. Confirm with **`docker compose exec backend printenv OTEL_EXPORTER_OTLP_ENDPOINT`**.
+
 1. **Local / EC2 with Docker:** start Jaeger and rebuild backend so `pipecat-ai[...,tracing]` is installed:
    ```bash
    docker compose --profile otel up -d
