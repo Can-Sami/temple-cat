@@ -1,7 +1,7 @@
 "use client";
 
 import { DailyTransport } from "@pipecat-ai/daily-transport";
-import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
+import { LogLevel, PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { PipecatClientAudio, PipecatClientProvider, usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { useState, useEffect } from "react";
 import { SessionConfigForm, SessionConfigPayload } from "../features/session-config/SessionConfigForm";
@@ -125,6 +125,8 @@ export default function Page() {
       transport,
       enableMic: true,
     });
+    // Server emits `user-llm-text` per RTVI; client-js 1.7 has no handler branch yet (DEBUG fallback).
+    rtviClient.setLogLevel(LogLevel.INFO);
     setClient(rtviClient);
   }, []);
 
