@@ -77,6 +77,8 @@ async def create_session(config: SessionConfig, request: Request) -> dict[str, s
         bot_token,
         "--config",
         config_json,
+        "--conversation-id",
+        session_id,
     ]
 
     log_dir = Path(os.environ.get("BOT_LOG_DIR", "/app/logs"))

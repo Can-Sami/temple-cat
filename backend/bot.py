@@ -2,7 +2,9 @@
 Pipecat voice bot — spawned as a subprocess by the session endpoint.
 
 Usage:
-    python bot.py --room-url <url> --token <token> --config <json>
+    python bot.py --room-url <url> --token <token> --config <json> [--conversation-id <uuid>]
+
+OpenTelemetry (optional): set ENABLE_TRACING=1 and OTLP env vars; see .env.example and DEPLOY.md.
 
 The --config JSON must match the SessionConfig schema:
     system_prompt, llm_temperature, llm_max_tokens,
@@ -52,6 +54,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
 from app.services.interruptibility import build_interruptibility_policy
+from app.services.pipecat_tracing import configure_pipecat_tracing_from_env, tracing_enabled_from_env
 
 AUDIO_IN_HZ = 16000
 AUDIO_OUT_HZ = 24000
@@ -134,19 +137,31 @@ def build_cartesia_input_params(config: dict[str, Any]) -> CartesiaTTSService.In
     return InputParams(**kwargs)
 
 
-def build_pipeline_params() -> PipelineParams:
+def build_pipeline_params(*, tracing: bool) -> PipelineParams:
     """Pipeline-wide audio rates; allow_interruptions when supported by this Pipecat version."""
-    base = {"audio_in_sample_rate": AUDIO_IN_HZ, "audio_out_sample_rate": AUDIO_OUT_HZ}
+    base: dict[str, Any] = {"audio_in_sample_rate": AUDIO_IN_HZ, "audio_out_sample_rate": AUDIO_OUT_HZ}
+    if tracing:
+        base["enable_metrics"] = True
+        base["enable_usage_metrics"] = True
     if "allow_interruptions" in _model_fields(PipelineParams):
         base["allow_interruptions"] = True
     return PipelineParams(**base)
 
 
-async def run_bot(room_url: str, token: str, config: dict[str, Any]) -> None:
+async def run_bot(
+    room_url: str,
+    token: str,
+    config: dict[str, Any],
+    *,
+    conversation_id: str | None,
+) -> None:
     _logger.info(
         "starting voice bot interruptibility=%s%%",
         config.get("interruptibility_percentage"),
     )
+
+    tracing_on = tracing_enabled_from_env()
+    otel_ready = configure_pipecat_tracing_from_env() if tracing_on else False
 
     transport = DailyTransport(
         room_url,
@@ -215,11 +230,23 @@ async def run_bot(room_url: str, token: str, config: dict[str, Any]) -> None:
         ]
     )
 
-    task = PipelineTask(
-        pipeline,
-        params=build_pipeline_params(),
-        observers=[RTVIObserver(rtvi=rtvi)],
-    )
+    task_kw: dict[str, Any] = {
+        "pipeline": pipeline,
+        "params": build_pipeline_params(tracing=tracing_on),
+        "observers": [RTVIObserver(rtvi=rtvi)],
+    }
+    if tracing_on and otel_ready:
+        task_kw["enable_tracing"] = True
+        task_kw["enable_turn_tracking"] = True
+        if conversation_id:
+            task_kw["conversation_id"] = conversation_id
+            task_kw["additional_span_attributes"] = {"session.id": conversation_id}
+    elif tracing_on and not otel_ready:
+        _logger.warning(
+            "ENABLE_TRACING set but OpenTelemetry did not initialize; running without Pipecat traces"
+        )
+
+    task = PipelineTask(**task_kw)
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
@@ -238,10 +265,22 @@ if __name__ == "__main__":
     parser.add_argument("--room-url", required=True)
     parser.add_argument("--token", required=True)
     parser.add_argument("--config", required=True, help="JSON-encoded SessionConfig")
+    parser.add_argument(
+        "--conversation-id",
+        default=None,
+        help="Session id for OTEL conversation_id / span attributes (recommended when tracing)",
+    )
     args = parser.parse_args()
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     _configure_logging()
     config_data = json.loads(args.config)
-    asyncio.run(run_bot(args.room_url, args.token, config_data))
+    asyncio.run(
+        run_bot(
+            args.room_url,
+            args.token,
+            config_data,
+            conversation_id=args.conversation_id,
+        )
+    )

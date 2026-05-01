@@ -71,6 +71,16 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Pipecat OpenTelemetry: docker compose --profile otel up -d
+  jaeger:
+    profiles: ["otel"]
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+    restart: unless-stopped
+    logging: *default-logging
+
 
 volumes:
   bot_logs:

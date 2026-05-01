@@ -73,6 +73,7 @@ docker compose ps
 - **Frontend** depends on **backend** (`service_healthy`) — waits for the backend health check to pass before starting.
 - **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC. Stdout/stderr for each bot is appended to **`/app/logs/bot-<session_id>.log`** inside the backend container (persisted via the `bot_logs` named volume).
 - **Dozzle** (optional) listens on **127.0.0.1:8080** only — use SSH port-forward or inspect logs via `docker compose logs`.
+- **Jaeger (OpenTelemetry)** — optional Compose profile **`otel`**. Run `docker compose --profile otel up -d` to start Jaeger alongside the stack; OTLP gRPC on **`127.0.0.1:4317`**, UI on **`127.0.0.1:16686`**. Set **`ENABLE_TRACING=1`** and **`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`** on the **backend** service (same Docker network). See **§8** below.
 
 If the frontend logs **“Could not find a production build in the '.next' directory”** and shows **`next start`**, you are not running the standalone image (stale image, or a bind-mount replaced `/app` with raw source). Rebuild with **`docker compose build --no-cache frontend`** and **do not** mount `./frontend` over `/app` in production. The stack runs **`node server.js`** from the image build output.
 
@@ -141,12 +142,37 @@ All keys are loaded from `.env` at the repo root. See `.env.example` for the ful
 | `DAILY_API_KEY` | ✅ | Daily.co API key for WebRTC rooms |
 | `FRONTEND_ORIGIN` | ✅ | CORS allow-list (comma-separated origins); default `http://localhost:3000`. Must include your public tunnel HTTPS origin in production. |
 | `BOT_LOG_DIR` | optional | Directory for bot log files (default `/app/logs` in Compose) |
+| `ENABLE_TRACING` | optional | Set `1` to enable Pipecat OpenTelemetry in each **`bot.py`** subprocess ([Pipecat tracing docs](https://docs.pipecat.ai/api-reference/server/utilities/opentelemetry)). |
+| `OTEL_SERVICE_NAME` | optional | Trace resource name (default `temple-cat-voice-bot`). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | OTLP collector URL; default `http://localhost:4317` (gRPC). With Compose profile **`otel`**, use `http://jaeger:4317` on the backend container. |
+| `OTEL_EXPORTER_OTLP_INSECURE` | optional | `true`/`false` for gRPC TLS (default `true` for local Jaeger). |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | optional | Set to `http/protobuf` for HTTP OTLP (e.g. Langfuse). |
+| `OTEL_CONSOLE_EXPORT` | optional | Set `1` to print spans to stdout (debug). |
 
 > ⚠️ **Never commit `.env` to git.** Only `.env.example` is committed.
 
 ---
 
-## 8. Cloudflare Tunnel Setup (Recommended)
+## 8. OpenTelemetry / Jaeger (optional addon)
+
+Pipecat emits hierarchical traces (conversation → turn → STT / LLM / TTS) when tracing is enabled.
+
+1. **Local / EC2 with Docker:** start Jaeger and rebuild backend so `pipecat-ai[...,tracing]` is installed:
+   ```bash
+   docker compose --profile otel up -d
+   docker compose build backend && docker compose up -d backend
+   ```
+2. In `.env`, set:
+   - `ENABLE_TRACING=1`
+   - `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`
+   - `OTEL_EXPORTER_OTLP_INSECURE=true`
+3. Open **http://127.0.0.1:16686** (SSH tunnel from your laptop if the server binds to localhost) and search traces for service **`temple-cat-voice-bot`** (or your `OTEL_SERVICE_NAME`).
+
+Each voice session passes **`--conversation-id`** (same as API `session_id`) into the bot for **`conversation.id`** / **`session.id`** span attributes.
+
+---
+
+## 9. Cloudflare Tunnel Setup (Recommended)
 
 ```bash
 # Install cloudflared

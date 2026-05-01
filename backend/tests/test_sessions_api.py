@@ -79,6 +79,9 @@ def test_create_session_provisions_room_and_spawns_bot(mock_helper_cls, mock_pop
     config_data = json.loads(config_str)
     assert config_data["system_prompt"] == "You are a friendly voice assistant."
 
+    assert "--conversation-id" in cmd
+    assert cmd[cmd.index("--conversation-id") + 1] == data["session_id"]
+
 
 @patch("app.api.sessions.session_creation_limiter")
 @patch("app.api.sessions.subprocess.Popen")
