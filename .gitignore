@@ -17,3 +17,7 @@ venv/
 node_modules/
 .worktrees/
 .DS_Store
+
+# Local demo walkthroughs and planning docs (not shipped with the repo)
+demo/
+docs/
