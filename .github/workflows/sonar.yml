@@ -1,0 +1,59 @@
+name: SonarQube
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: sonar-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonarqube:
+    name: Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Sonar configuration
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::Create repository secret SONAR_TOKEN (SonarCloud token or SonarQube user token)."
+            exit 1
+          fi
+          if [ -z "$SONAR_HOST_URL" ] && [ -z "$SONAR_ORGANIZATION" ]; then
+            echo "::error::For SonarCloud, set repository variable SONAR_ORGANIZATION."
+            echo "::error::For self-hosted SonarQube, set secret SONAR_HOST_URL instead."
+            exit 1
+          fi
+
+      - name: Build scanner arguments
+        id: sonar_args
+        env:
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+        run: |
+          if [ -n "$SONAR_ORGANIZATION" ]; then
+            echo "extra=-Dsonar.organization=$SONAR_ORGANIZATION" >> "$GITHUB_OUTPUT"
+          else
+            echo "extra=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: ${{ steps.sonar_args.outputs.extra }}
