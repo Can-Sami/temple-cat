@@ -10,6 +10,8 @@
 | Instance type | `t3.medium` (2 vCPU, 4 GiB RAM) |
 | Storage | 20 GiB gp3 root volume |
 
+**Optional add-on (Freya brief — pick one):** This project implements **Pipecat OpenTelemetry → Jaeger**, not Qdrant/RAG. Jaeger is behind Compose profile **`otel`**; see **§8**. Default `docker compose up -d` runs only frontend, backend, and Dozzle.
+
 ---
 
 ## 2. AWS Security Group — Required Open Ports

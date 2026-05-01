@@ -1,5 +1,7 @@
 ## Goal
 
+> **Status:** **Not implemented** on `main`. Freya’s brief allows Qdrant RAG *or* Pipecat OpenTelemetry; this repository shipped **OpenTelemetry → Jaeger** instead. The content below is an **alternate design** retained for reference.
+
 Add the “Help Center (Qdrant RAG)” add-on in a production-minded way:
 
 - A `qdrant` service comes up via `docker compose up -d` alongside frontend + backend.

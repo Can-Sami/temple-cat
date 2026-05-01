@@ -1,5 +1,7 @@
 # Qdrant Help Center RAG Implementation Plan
 
+> **Status:** **Not implemented** on `main`. The submission uses the **OpenTelemetry/Jaeger** optional add-on instead (`DEPLOY.md` §8). Treat this file as a backlog plan only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a production-minded Qdrant + OpenAI-embeddings RAG add-on: `docker compose up -d` brings up `qdrant`, backend seeds help-center Q&A, and each user utterance retrieves top-k Q&A and injects it into the LLM prompt for that turn.

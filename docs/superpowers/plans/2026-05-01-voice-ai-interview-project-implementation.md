@@ -2,17 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build and deploy a real-time configurable Voice AI app with Pipecat, Daily, Qdrant RAG, live bot-state telemetry, and interview-ready docs/artifacts.
+> **Shipped on `main`:** Voice stack + optional **OpenTelemetry → Jaeger** (Compose profile `otel`). **Not shipped:** Qdrant/RAG in compose or `bot.py`. Archived Qdrant design: `docs/superpowers/specs/2026-05-01-qdrant-rag-design.md`.
 
-**Architecture:** Use an integration-first vertical slice: bootstrap working frontend-backend voice path first, then layer runtime config mapping, live state/latency telemetry, Qdrant retrieval, reliability controls, and deployment polish. Backend owns all session orchestration and emits deterministic state/timing events; frontend is a thin validated control + dashboard surface.
+**Goal:** Build and deploy a real-time configurable Voice AI app with Pipecat, Daily, live bot-state telemetry, optional Pipecat OpenTelemetry traces (Jaeger), and interview-ready docs/artifacts.
 
-**Tech Stack:** Next.js (TypeScript), TanStack Query, Python (FastAPI + Pipecat), Daily transport, Deepgram, OpenAI, Cartesia, Qdrant, Docker Compose, Pytest, Vitest + Testing Library.
+**Architecture:** Use an integration-first vertical slice: bootstrap working frontend-backend voice path first, then layer runtime config mapping, live state/latency telemetry, reliability controls, deployment polish, and optional OTLP export from bot subprocesses. Backend owns all session orchestration and emits deterministic state/timing events; frontend is a thin validated control + dashboard surface.
+
+**Tech Stack:** Next.js (TypeScript), TanStack Query, Python (FastAPI + Pipecat), Daily transport, Deepgram, OpenAI, Cartesia, Docker Compose, Pytest, Vitest + Testing Library; optional Jaeger (OTLP) via Compose profile.
 
 ---
 
 ## File structure map
 
-- `docker-compose.yml` — service orchestration for frontend/backend/qdrant
+- `docker-compose.yml` — service orchestration for frontend/backend (optional `otel` profile for Jaeger)
 - `.env.example` — required env vars contract
 - `DEPLOY.md` — one-page deployment/runbook for EC2
 - `demo/WALKTHROUGH.md` — interview walkthrough script
@@ -33,7 +35,7 @@
 - `backend/app/services/pipeline.py` — Pipecat pipeline orchestrator
 - `backend/app/services/interruptibility.py` — interruptibility mapping logic
 - `backend/app/services/metrics.py` — latency calculator + event payloads
-- `backend/app/services/retrieval.py` — Qdrant retrieval interface
+- `backend/app/services/retrieval.py` — formats retrieval context strings (tests only; no live Qdrant in shipped stack)
 - `backend/app/services/retries.py` — bounded retry utility
 - `backend/app/services/rate_limit.py` — request limiter
 - `backend/tests/**/*.py` — backend unit tests
@@ -751,15 +753,15 @@ Expected: FAIL before final wiring is complete
 # demo/WALKTHROUGH.md
 1. Show config panel and custom prompt.
 2. Start session and speak.
-3. Demonstrate interruption and state shift.
-4. Show latency metric and Qdrant-informed answer.
+3. Demonstrate interruption and state shift (including **Interrupted** badge when talking over the bot).
+4. Show latency metric and (optional) Pipecat traces in Jaeger (`docker compose --profile otel`).
 5. Show deployment command and running services.
 ```
 
 - [ ] **Step 4: Run final smoke checks**
 
 Run: `docker compose up -d && docker compose ps`
-Expected: PASS with `frontend`, `backend`, `qdrant` in running/healthy state
+Expected: PASS with `frontend`, `backend` (and optionally `jaeger` when profile `otel` is enabled) in running/healthy state
 
 - [ ] **Step 5: Commit**
 
@@ -1227,8 +1229,8 @@ git commit -m "feat: integrate pipecat client-js and daily transport for live bo
 
 ## Updated self-review checklist
 
-- Spec coverage: all spec areas now have tasks — config ✅, pipeline ✅, real Pipecat wiring ✅,
-  state sync via RTVI ✅, latency ✅, Qdrant ✅, security ✅, tests ✅, deploy/docs ✅.
+- Spec coverage: shipped tasks — config ✅, pipeline ✅, real Pipecat wiring ✅,
+  state sync via RTVI ✅, latency ✅, optional OpenTelemetry/Jaeger ✅, security ✅, tests ✅, deploy/docs ✅. Qdrant RAG archived only (`docs/superpowers/specs/2026-05-01-qdrant-rag-design.md`).
 - Tasks 12–14 use Pipecat as officially recommended: bot.py subprocess pattern, DailyRESTHelper
   for room provisioning, SileroVADAnalyzer for interruptibility, RTVI protocol for state events.
 - No fake SSE invented — RTVI + `@pipecat-ai/client-js` is the canonical event channel.

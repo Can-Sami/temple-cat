@@ -8,7 +8,7 @@ Make the Next.js frontend look like a **premium product dashboard** using **shad
 
 - **Primary user**: Evaluators / builders running and iterating on a real-time voice agent.
 - **Primary jobs**:
-  - Configure a new voice session (LLM/STT/TTS/interruptibility, optional RAG).
+  - Configure a new voice session (LLM/STT/TTS/interruptibility).
   - Start/stop a session reliably.
   - Observe live session state (“Listening/Thinking/Speaking”) and latency.
   - Understand errors quickly (API vs transport vs session lifecycle).
@@ -63,7 +63,6 @@ Displayed as a structured card with grouped sections:
 - **STT**: temperature (input)
 - **TTS**: voice (select), speed (input), temperature (input)
 - **Interruptibility**: percentage (slider or numeric input with bounds)
-- **Optional RAG**: toggle + brief description (even if backend integration is optional/behind a flag)
 
 Primary CTA: **Start session** (disabled while submitting). Errors appear as an Alert at top of the form.
 
