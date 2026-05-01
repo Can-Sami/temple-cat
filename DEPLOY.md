@@ -159,9 +159,14 @@ Pipecat emits hierarchical traces (conversation → turn → STT / LLM / TTS) wh
 
 Compose runs **Jaeger v2** (`cr.jaegertracing.io/jaegertracing/jaeger`), which accepts OTLP on port **4317** the same way as the old all-in-one image; no application changes are required beyond pulling the new image. Broader v1→v2 deployment changes (Kubernetes, storage, flags) are described in the [migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view).
 
-In Jaeger UI, if you only see the **`jaeger`** service (internal telemetry) and not **`temple-cat-voice-bot`**, the backend container was probably still using OTLP **`localhost:4317`** (wrong inside Docker). **`docker-compose.yml`** sets **`OTEL_EXPORTER_OTLP_ENDPOINT`** to **`http://jaeger:4317`** by default when you omit it from `.env`; restart backend after enabling tracing. Confirm with **`docker compose exec backend printenv OTEL_EXPORTER_OTLP_ENDPOINT`**.
+In Jaeger UI, if you only see the **`jaeger`** service (internal telemetry) and not **`temple-cat-voice-bot`**:
 
-1. **Local / EC2 with Docker:** start Jaeger and rebuild backend so `pipecat-ai[...,tracing]` is installed:
+1. **Leading spaces in `.env`** — lines must look like **`ENABLE_TRACING=1`**, not **` ENABLE_TRACING=1`**. Otherwise **`ENABLE_TRACING`** is unset inside the container (Compose/Python treat the key differently).
+2. **Wrong OTLP host inside Docker** — **`localhost:4317`** hits the backend container, not Jaeger. **`docker-compose.yml`** defaults **`OTEL_EXPORTER_OTLP_ENDPOINT`** to **`http://jaeger:4317`** when omitted from `.env`; restart backend after changing compose.
+
+Confirm tracing vars reach the backend: **`docker compose exec backend python -c "import os; print(os.getenv('ENABLE_TRACING'), os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT'))`** — expect **`1 http://jaeger:4317`** (or your overrides).
+
+1. **Local / EC2 with Docker:** start Jaeger and rebuild the backend image so **`opentelemetry-exporter-otlp-proto-grpc`** is installed (declared in `backend/pyproject.toml`; Pipecat’s **`tracing`** extra alone does not include OTLP exporters):
    ```bash
    docker compose --profile otel up -d
    docker compose build backend && docker compose up -d backend

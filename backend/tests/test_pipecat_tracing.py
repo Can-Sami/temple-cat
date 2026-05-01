@@ -39,3 +39,12 @@ def test_configure_calls_setup_when_enabled(monkeypatch):
     kwargs = fake_setup.call_args.kwargs
     assert kwargs["service_name"] == "temple-cat-voice-bot"
     assert kwargs["console_export"] is False
+
+
+def test_build_otlp_exporter_grpc_uses_installed_package(monkeypatch):
+    """Pipecat's tracing extra omits OTLP exporters; pyproject must pin grpc exporter."""
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4317")
+    exporter = pipecat_tracing._build_otlp_exporter()
+    assert exporter is not None

@@ -15,6 +15,8 @@ dependencies = [
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
     "pipecat-ai[daily,deepgram,openai,cartesia,silero,tracing]>=0.0.50",
+    # Pipecat's tracing extra does not ship OTLP exporters; Jaeger needs gRPC export.
+    "opentelemetry-exporter-otlp-proto-grpc>=1.33.0,<2",
     "aiohttp>=3.9",
 ]
 
