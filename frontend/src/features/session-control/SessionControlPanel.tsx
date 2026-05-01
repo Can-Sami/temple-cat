@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+
 interface Props {
   isActive: boolean;
   onStart: () => void;
@@ -6,11 +8,15 @@ interface Props {
 
 export function SessionControlPanel({ isActive, onStart, onStop }: Props) {
   return (
-    <div>
+    <div className="flex justify-end">
       {isActive ? (
-        <button onClick={onStop}>Stop Session</button>
+        <Button type="button" variant="destructive" onClick={onStop}>
+          Stop Session
+        </Button>
       ) : (
-        <button onClick={onStart}>Start Session</button>
+        <Button type="button" onClick={onStart}>
+          Start Session
+        </Button>
       )}
     </div>
   );

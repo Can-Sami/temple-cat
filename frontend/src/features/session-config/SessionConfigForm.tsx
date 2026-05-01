@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
 export interface SessionConfigPayload {
   system_prompt: string;
   llm_temperature: number;
@@ -43,10 +47,15 @@ export function SessionConfigForm({ onSubmit, submitting = false }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="system-prompt">System Prompt</label>
-        <textarea
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="system-prompt"
+          className="text-sm font-medium leading-none"
+        >
+          System Prompt
+        </label>
+        <Textarea
           id="system-prompt"
           aria-label="System Prompt"
           value={systemPrompt}
@@ -55,96 +64,114 @@ export function SessionConfigForm({ onSubmit, submitting = false }: Props) {
         />
       </div>
 
-      <div>
-        <label htmlFor="llm-temperature">LLM Temperature</label>
-        <input
-          id="llm-temperature"
-          type="number"
-          step="0.1"
-          min="0"
-          max="2"
-          value={llmTemperature}
-          onChange={(e) => setLlmTemperature(Number(e.target.value))}
-        />
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <label htmlFor="llm-temperature" className="text-sm font-medium leading-none">
+            LLM Temperature
+          </label>
+          <Input
+            id="llm-temperature"
+            type="number"
+            step="0.1"
+            min="0"
+            max="2"
+            value={llmTemperature}
+            onChange={(e) => setLlmTemperature(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="llm-max-tokens" className="text-sm font-medium leading-none">
+            Max Tokens
+          </label>
+          <Input
+            id="llm-max-tokens"
+            type="number"
+            min="1"
+            max="4096"
+            value={llmMaxTokens}
+            onChange={(e) => setLlmMaxTokens(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="stt-temperature" className="text-sm font-medium leading-none">
+            STT Temperature
+          </label>
+          <Input
+            id="stt-temperature"
+            type="number"
+            step="0.1"
+            min="0"
+            max="1"
+            value={sttTemperature}
+            onChange={(e) => setSttTemperature(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="tts-voice" className="text-sm font-medium leading-none">
+            TTS Voice
+          </label>
+          <Input
+            id="tts-voice"
+            type="text"
+            value={ttsVoice}
+            onChange={(e) => setTtsVoice(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="tts-speed" className="text-sm font-medium leading-none">
+            TTS Speed
+          </label>
+          <Input
+            id="tts-speed"
+            type="number"
+            step="0.1"
+            min="0.5"
+            max="2"
+            value={ttsSpeed}
+            onChange={(e) => setTtsSpeed(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="tts-temperature" className="text-sm font-medium leading-none">
+            TTS Temperature
+          </label>
+          <Input
+            id="tts-temperature"
+            type="number"
+            step="0.1"
+            min="0"
+            max="1"
+            value={ttsTemperature}
+            onChange={(e) => setTtsTemperature(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="interruptibility" className="text-sm font-medium leading-none">
+            Interruptibility Percentage
+          </label>
+          <Input
+            id="interruptibility"
+            aria-label="Interruptibility Percentage"
+            type="number"
+            min="0"
+            max="100"
+            value={interruptibility}
+            onChange={(e) => setInterruptibility(Number(e.target.value))}
+          />
+        </div>
       </div>
 
-      <div>
-        <label htmlFor="llm-max-tokens">Max Tokens</label>
-        <input
-          id="llm-max-tokens"
-          type="number"
-          min="1"
-          max="4096"
-          value={llmMaxTokens}
-          onChange={(e) => setLlmMaxTokens(Number(e.target.value))}
-        />
+      <div className="flex justify-end">
+        <Button type="submit" disabled={submitting} aria-busy={submitting}>
+          {submitting ? "Starting…" : "Start Session"}
+        </Button>
       </div>
-
-      <div>
-        <label htmlFor="stt-temperature">STT Temperature</label>
-        <input
-          id="stt-temperature"
-          type="number"
-          step="0.1"
-          min="0"
-          max="1"
-          value={sttTemperature}
-          onChange={(e) => setSttTemperature(Number(e.target.value))}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="tts-voice">TTS Voice</label>
-        <input
-          id="tts-voice"
-          type="text"
-          value={ttsVoice}
-          onChange={(e) => setTtsVoice(e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="tts-speed">TTS Speed</label>
-        <input
-          id="tts-speed"
-          type="number"
-          step="0.1"
-          min="0.5"
-          max="2"
-          value={ttsSpeed}
-          onChange={(e) => setTtsSpeed(Number(e.target.value))}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="tts-temperature">TTS Temperature</label>
-        <input
-          id="tts-temperature"
-          type="number"
-          step="0.1"
-          min="0"
-          max="1"
-          value={ttsTemperature}
-          onChange={(e) => setTtsTemperature(Number(e.target.value))}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="interruptibility">Interruptibility Percentage</label>
-        <input
-          id="interruptibility"
-          aria-label="Interruptibility Percentage"
-          type="number"
-          min="0"
-          max="100"
-          value={interruptibility}
-          onChange={(e) => setInterruptibility(Number(e.target.value))}
-        />
-      </div>
-
-      <button type="submit" disabled={submitting} aria-busy={submitting}>
-        {submitting ? "Starting…" : "Start Session"}
-      </button>
     </form>
   );
 }

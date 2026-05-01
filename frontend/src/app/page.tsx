@@ -10,6 +10,10 @@ import { BotStateBadge, BotState } from "../features/dashboard/BotStateBadge";
 import { LatencyPanel } from "../features/dashboard/LatencyPanel";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+
 // Component inside the RTVIProvider
 function InterviewDashboard() {
   const client = usePipecatClient();
@@ -84,34 +88,56 @@ function InterviewDashboard() {
   const sessionError = transportError ?? apiErrorMessage;
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "800px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      <h1>Temple-cat Voice AI Interview</h1>
-      
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">
+          Start a voice interview session, monitor bot state, and stop cleanly when you&apos;re done.
+        </p>
+      </div>
+
       {!sessionActive ? (
-        <section>
-          <h2>Configure Session</h2>
-          {sessionError ? (
-            <div role="alert" style={{ color: "#b00020", marginBottom: "1rem" }}>
-              {sessionError}
-            </div>
-          ) : null}
-          <SessionConfigForm
-            onSubmit={handleStartSession}
-            submitting={createSession.isPending}
-          />
-        </section>
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>Configure Session</CardTitle>
+            <CardDescription>Set prompts and model parameters before connecting.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 pt-6">
+            {sessionError ? (
+              <Alert variant="destructive">
+                <AlertTitle>Could not start session</AlertTitle>
+                <AlertDescription>{sessionError}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <SessionConfigForm
+              onSubmit={handleStartSession}
+              submitting={createSession.isPending}
+            />
+          </CardContent>
+        </Card>
       ) : (
-        <section>
-          <h2>Live Session</h2>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "1rem" }}>
-            <BotStateBadge state={botState} />
-            <LatencyPanel latencyMs={latencyMs} />
-          </div>
-          <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
-        </section>
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>Live Session</CardTitle>
+            <CardDescription>You&apos;re connected. Watch status and latency while you speak.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 pt-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
+                <BotStateBadge state={botState} />
+                <Separator orientation="vertical" className="hidden h-8 md:block" />
+                <LatencyPanel latencyMs={latencyMs} />
+              </div>
+            </div>
+
+            <Separator />
+
+            <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
+          </CardContent>
+        </Card>
       )}
       <PipecatClientAudio />
-    </main>
+    </div>
   );
 }
 
@@ -130,7 +156,14 @@ export default function Page() {
     setClient(rtviClient);
   }, []);
 
-  if (!client) return null;
+  if (!client) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="h-4 w-2/3 max-w-md animate-pulse rounded-md bg-muted" />
+        <div className="h-40 w-full animate-pulse rounded-xl bg-muted" />
+      </div>
+    );
+  }
 
   return (
     <PipecatClientProvider client={client}>

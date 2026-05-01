@@ -1,5 +1,9 @@
 "use client";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+
 export default function Error({
   error,
   reset,
@@ -8,14 +12,23 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <main style={{ padding: "2rem", maxWidth: "560px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      <h1>Something went wrong</h1>
-      <p role="alert" style={{ color: "#b00020" }}>
-        {error.message}
-      </p>
-      <button type="button" onClick={() => reset()}>
-        Try again
-      </button>
-    </main>
+    <div className="flex justify-center py-10">
+      <Card className="w-full max-w-xl">
+        <CardHeader className="border-b">
+          <CardTitle>Something went wrong</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <Alert variant="destructive">
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error.message}</AlertDescription>
+          </Alert>
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button type="button" onClick={reset}>
+            Try again
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }
