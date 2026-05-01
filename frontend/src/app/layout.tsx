@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 
 export const metadata = {
-  title: "Goatcat Voice AI Interview",
+  title: "Temple-cat Voice AI Interview",
   description: "Real-time voice AI interview application built with Pipecat and Next.js",
 };
 

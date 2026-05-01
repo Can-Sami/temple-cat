@@ -75,7 +75,7 @@ function InterviewDashboard() {
 
   return (
     <main style={{ padding: "2rem", maxWidth: "800px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      <h1>Goatcat Voice AI Interview</h1>
+      <h1>Temple-cat Voice AI Interview</h1>
       
       {!sessionActive ? (
         <section>
@@ -90,9 +90,9 @@ function InterviewDashboard() {
             <LatencyPanel latencyMs={latencyMs} />
           </div>
           <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
-          <PipecatClientAudio />
         </section>
       )}
+      <PipecatClientAudio />
     </main>
   );
 }

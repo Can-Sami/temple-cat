@@ -1,4 +1,4 @@
-# DEPLOY.md — Goatcat Voice AI Deployment Runbook
+# DEPLOY.md — Temple-cat Voice AI Deployment Runbook
 
 ## 1. Target Infrastructure
 
@@ -148,11 +148,11 @@ sudo dpkg -i cloudflared-linux-amd64.deb
 
 # Authenticate and create tunnel
 cloudflared tunnel login
-cloudflared tunnel create goatcat-voice
+cloudflared tunnel create temple-cat-voice
 
 # Route traffic
-cloudflared tunnel route dns goatcat-voice your-domain.com
+cloudflared tunnel route dns temple-cat-voice your-domain.com
 
 # Start tunnel (points to frontend)
-cloudflared tunnel --url http://localhost:3000 run goatcat-voice
+cloudflared tunnel --url http://localhost:3000 run temple-cat-voice
 ```

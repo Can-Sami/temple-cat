@@ -2,3 +2,15 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Environment variables
+.env
+.env.*
+
+# IDEs and environments
+.vscode/
+.idea/
+venv/
+.venv/
+node_modules/
+.DS_Store

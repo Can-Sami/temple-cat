@@ -1,4 +1,4 @@
-# Interview Walkthrough — Goatcat Voice AI
+# Interview Walkthrough — Temple-cat Voice AI
 
 This script walks through the key features of the system during a live demo or review.
 

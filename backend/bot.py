@@ -16,6 +16,7 @@ import os
 import sys
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -24,7 +25,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.frameworks.rtvi import RTVIProcessor
+from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
@@ -56,7 +57,11 @@ async def run_bot(room_url: str, token: str, config: dict) -> None:
         room_url,
         token,
         "VoiceBot",
-        DailyParams(audio_in_enabled=True, audio_out_enabled=True),
+        DailyParams(
+            audio_in_enabled=True, 
+            audio_out_enabled=True,
+            audio_out_sample_rate=24000
+        ),
     )
 
     stt = DeepgramSTTService(
@@ -65,16 +70,28 @@ async def run_bot(room_url: str, token: str, config: dict) -> None:
 
     llm = OpenAILLMService(
         api_key=os.environ["OPENAI_API_KEY"],
-        model="gpt-4o",
-        params=OpenAILLMService.InputParams(
+        settings=OpenAILLMService.Settings(
+            model="gpt-4o",
             temperature=config["llm_temperature"],
             max_tokens=config["llm_max_tokens"],
         ),
     )
 
+    voice_name = config["tts_voice"]
+    voice_map = {
+        "sonic": "79a125e8-cd45-4c13-8a67-188112f4dd22",
+        "alloy": "79a125e8-cd45-4c13-8a67-188112f4dd22", # fallback
+        "katie": "f786b574-daa5-4673-aa0c-cbe3e8534c02",
+        "kiefer": "228fca29-3a0a-435c-8728-5cb483251068",
+        "tessa": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        "kyle": "c961b81c-a935-4c17-bfb3-ba2239de8c2f",
+    }
+    voice_uuid = voice_map.get(voice_name.lower(), voice_name)
+
     tts = CartesiaTTSService(
         api_key=os.environ["CARTESIA_API_KEY"],
-        voice_id=config["tts_voice"],
+        voice_id=voice_uuid,
+        sample_rate=24000,
         params=CartesiaTTSService.InputParams(
             speed=config["tts_speed"],
         ),
@@ -88,7 +105,7 @@ async def run_bot(room_url: str, token: str, config: dict) -> None:
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(params=dict(stop_secs=vad_stop_secs))
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=vad_stop_secs))
         )
     )
 
@@ -108,7 +125,11 @@ async def run_bot(room_url: str, token: str, config: dict) -> None:
         ]
     )
 
-    task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(allow_interruptions=True),
+        observers=[RTVIObserver(rtvi=rtvi)],
+    )
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
