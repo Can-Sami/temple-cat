@@ -14,7 +14,8 @@ dependencies = [
     "httpx>=0.27.2",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
-    "pipecat-ai[daily,deepgram,openai,cartesia,silero,tracing]>=0.0.50",
+    # Pinned to match backend/requirements-docker.lock (voice pipeline is sensitive to upstream drift).
+    "pipecat-ai[daily,deepgram,openai,cartesia,silero,tracing]==1.1.0",
     # Pipecat's tracing extra does not ship OTLP exporters; Jaeger needs gRPC export.
     "opentelemetry-exporter-otlp-proto-grpc>=1.33.0,<2",
     "aiohttp>=3.9",

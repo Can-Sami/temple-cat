@@ -14,8 +14,8 @@ The --config JSON must match the SessionConfig schema:
 STT / TTS \"temperature\" (0–1 from the UI):
     Deepgram STT has no sampling temperature; we map stt_temperature to
     endpointing (silence ms before finalizing), per Pipecat Deepgram settings.
-    Cartesia Sonic has no temperature knob; we map tts_temperature to
-    generation volume on Sonic-3 (GenerationConfig), or legacy emotion presets.
+    Cartesia Sonic-3 exposes generation guidance via GenerationConfig; we map
+    tts_temperature to volume (and keep explicit speed from the UI).
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
-from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
@@ -60,21 +60,14 @@ AUDIO_IN_HZ = 16000
 AUDIO_OUT_HZ = 24000
 
 
-def _model_fields(cls: type) -> Any:
-    """Pydantic v2 ``model_fields`` or v1 ``__fields__``."""
-    return getattr(cls, "model_fields", None) or getattr(cls, "__fields__", {})
-
-
 def build_daily_params() -> DailyParams:
-    """Daily transport audio IO; input rate omitted on older Pipecat builds."""
-    kwargs: dict[str, Any] = {
-        "audio_in_enabled": True,
-        "audio_out_enabled": True,
-        "audio_out_sample_rate": AUDIO_OUT_HZ,
-    }
-    if "audio_in_sample_rate" in _model_fields(DailyParams):
-        kwargs["audio_in_sample_rate"] = AUDIO_IN_HZ
-    return DailyParams(**kwargs)
+    """Daily transport audio IO (Pipecat DailyParams / TransportParams)."""
+    return DailyParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        audio_in_sample_rate=AUDIO_IN_HZ,
+        audio_out_sample_rate=AUDIO_OUT_HZ,
+    )
 
 
 def build_system_messages(system_prompt: str) -> list[dict]:
@@ -99,54 +92,37 @@ def stt_endpointing_ms(stt_temperature: float) -> int:
 
 
 def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.InputParams:
-    """Build Cartesia params for both Sonic-3 (GenerationConfig) and legacy InputParams."""
-    input_params_cls = CartesiaTTSService.InputParams
+    """Cartesia Sonic-3 generation guidance via GenerationConfig (pipecat-ai 1.1.x)."""
     speed = float(config.tts_speed)
     tts_temp = max(0.0, min(1.0, float(config.tts_temperature)))
     volume = max(0.5, min(2.0, 0.7 + 0.55 * tts_temp))
-
-    field_names = _model_fields(input_params_cls)
-    if "generation_config" in field_names:
-        from pipecat.services.cartesia.tts import GenerationConfig
-
-        return input_params_cls(
-            generation_config=GenerationConfig(speed=speed, volume=volume),
-        )
-
-    # Legacy Cartesia (e.g. sonic-2): categorical speed + optional emotion list
-    def speed_preset(s: float) -> str:
-        if s < 0.9:
-            return "slow"
-        if s > 1.1:
-            return "fast"
-        return "normal"
-
-    kwargs: dict[str, Any] = {}
-    if "speed" in field_names:
-        kwargs["speed"] = speed_preset(speed)
-    if "emotion" in field_names:
-        kwargs["emotion"] = ["excited"] if tts_temp >= 0.5 else []
-    return input_params_cls(**kwargs)
+    return CartesiaTTSService.InputParams(
+        generation_config=GenerationConfig(speed=speed, volume=volume),
+    )
 
 
 def build_pipeline_params(*, tracing: bool) -> PipelineParams:
-    """Pipeline-wide audio rates; allow_interruptions when supported by this Pipecat version."""
-    base: dict[str, Any] = {"audio_in_sample_rate": AUDIO_IN_HZ, "audio_out_sample_rate": AUDIO_OUT_HZ}
+    """Pipeline-wide audio sample rates and optional metrics when tracing is on."""
+    kw: dict[str, Any] = {
+        "audio_in_sample_rate": AUDIO_IN_HZ,
+        "audio_out_sample_rate": AUDIO_OUT_HZ,
+    }
     if tracing:
-        base["enable_metrics"] = True
-        base["enable_usage_metrics"] = True
-    if "allow_interruptions" in _model_fields(PipelineParams):
-        base["allow_interruptions"] = True
-    return PipelineParams(**base)
+        kw["enable_metrics"] = True
+        kw["enable_usage_metrics"] = True
+    return PipelineParams(**kw)
 
 
-async def run_bot(
+def build_voice_pipeline_task(
     room_url: str,
     token: str,
     config: SessionConfig,
     *,
     conversation_id: str | None,
-) -> None:
+    tracing_on: bool,
+    otel_ready: bool,
+) -> tuple[DailyTransport, PipelineTask]:
+    """Wire Pipecat processors into a ``PipelineTask`` (handlers and runner are ``run_bot``'s job)."""
     vad = build_vad_tuning(config.interruptibility_percentage)
     _logger.info(
         "starting voice bot interruptibility=%s%% vad_stop_secs=%.3f vad_start_secs=%.3f "
@@ -157,9 +133,6 @@ async def run_bot(
         vad.min_volume,
         vad.confidence,
     )
-
-    tracing_on = tracing_enabled_from_env()
-    otel_ready = configure_pipecat_tracing_from_env() if tracing_on else False
 
     transport = DailyTransport(
         room_url,
@@ -251,6 +224,38 @@ async def run_bot(
         )
 
     task = PipelineTask(**task_kw)
+    return transport, task
+
+
+async def run_bot(
+    room_url: str,
+    token: str,
+    config: SessionConfig,
+    *,
+    conversation_id: str | None,
+) -> None:
+    vad = build_vad_tuning(config.interruptibility_percentage)
+    _logger.info(
+        "starting voice bot interruptibility=%s%% vad_stop_secs=%.3f vad_start_secs=%.3f "
+        "preemption_profile=start_vol/conf=%.2f/%.2f",
+        config.interruptibility_percentage,
+        vad.stop_secs,
+        vad.start_secs,
+        vad.min_volume,
+        vad.confidence,
+    )
+
+    tracing_on = tracing_enabled_from_env()
+    otel_ready = configure_pipecat_tracing_from_env() if tracing_on else False
+
+    transport, task = build_voice_pipeline_task(
+        room_url,
+        token,
+        config,
+        conversation_id=conversation_id,
+        tracing_on=tracing_on,
+        otel_ready=otel_ready,
+    )
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
