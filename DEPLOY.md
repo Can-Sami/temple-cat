@@ -73,7 +73,7 @@ docker compose ps
 - **Frontend** depends on **backend** (`service_healthy`) — waits for the backend health check to pass before starting.
 - **Bot processes** (`bot.py`) are spawned by the backend as detached subprocesses when a session is created. They join a Daily.co room via WebRTC. Stdout/stderr for each bot is appended to **`/app/logs/bot-<session_id>.log`** inside the backend container (persisted via the `bot_logs` named volume).
 - **Dozzle** (optional) listens on **127.0.0.1:8080** only — use SSH port-forward or inspect logs via `docker compose logs`.
-- **Jaeger (OpenTelemetry)** — optional Compose profile **`otel`**. Run `docker compose --profile otel up -d` to start Jaeger alongside the stack; OTLP gRPC on **`127.0.0.1:4317`**, UI on **`127.0.0.1:16686`**. Set **`ENABLE_TRACING=1`** and **`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`** on the **backend** service (same Docker network). See **§8** below.
+- **Jaeger v2 (OpenTelemetry)** — optional Compose profile **`otel`**. Run `docker compose --profile otel up -d` to start the all-in-one Jaeger v2 image alongside the stack; OTLP gRPC on **`127.0.0.1:4317`**, UI on **`127.0.0.1:16686`**. Set **`ENABLE_TRACING=1`** and **`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`** on the **backend** service (same Docker network). See **§8** below. Upgrading from Jaeger v1 is covered in the [Jaeger v2 migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view) and [Jaeger docs](https://www.jaegertracing.io/docs/latest/getting-started/).
 
 If the frontend logs **“Could not find a production build in the '.next' directory”** and shows **`next start`**, you are not running the standalone image (stale image, or a bind-mount replaced `/app` with raw source). Rebuild with **`docker compose build --no-cache frontend`** and **do not** mount `./frontend` over `/app` in production. The stack runs **`node server.js`** from the image build output.
 
@@ -156,6 +156,8 @@ All keys are loaded from `.env` at the repo root. See `.env.example` for the ful
 ## 8. OpenTelemetry / Jaeger (optional addon)
 
 Pipecat emits hierarchical traces (conversation → turn → STT / LLM / TTS) when tracing is enabled.
+
+Compose runs **Jaeger v2** (`cr.jaegertracing.io/jaegertracing/jaeger`), which accepts OTLP on port **4317** the same way as the old all-in-one image; no application changes are required beyond pulling the new image. Broader v1→v2 deployment changes (Kubernetes, storage, flags) are described in the [migration guide](https://docs.google.com/document/d/1z4QrNtB9dMgT5SHNx-7Vc38XPLqnjmM2jFIupvkAEHo/view).
 
 1. **Local / EC2 with Docker:** start Jaeger and rebuild backend so `pipecat-ai[...,tracing]` is installed:
    ```bash

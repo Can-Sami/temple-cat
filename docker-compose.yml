@@ -72,9 +72,10 @@ services:
     logging: *default-logging
 
   # Pipecat OpenTelemetry: docker compose --profile otel up -d
+  # Jaeger v2 (OTLP-native collector + query); replaces jaegertracing/all-in-one (v1).
   jaeger:
     profiles: ["otel"]
-    image: jaegertracing/all-in-one:latest
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
     ports:
       - "127.0.0.1:16686:16686"
       - "127.0.0.1:4317:4317"
