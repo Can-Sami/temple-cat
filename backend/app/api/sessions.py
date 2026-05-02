@@ -122,6 +122,7 @@ async def create_session(config: SessionConfig, request: Request) -> VoiceSessio
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
+        env=os.environ.copy(),
     )
 
     # Brief yield so import/config validation failures surface before we hand tokens to the client.

@@ -80,6 +80,7 @@ def test_create_session_provisions_room_and_spawns_bot(client):
         assert cmd[0] == sys.executable
         assert "bot.py" in cmd[1]
         assert kw.get("start_new_session") is True
+        assert isinstance(kw.get("env"), dict)
         assert kw.get("stdin") == subprocess.DEVNULL
         assert kw.get("stdout") == asyncio.subprocess.PIPE
         assert kw.get("stderr") == subprocess.STDOUT
