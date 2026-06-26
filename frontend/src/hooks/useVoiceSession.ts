@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
-import type { SessionConfigPayload } from "@/features/session-config/SessionConfigForm";
+import type { SessionConfigPayload } from "@/features/session-config/sessionConfig";
 import { createVoiceSession } from "@/lib/api/sessions";
 import { voiceSessionKeys } from "@/lib/query-keys";
 

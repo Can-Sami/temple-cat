@@ -39,7 +39,7 @@ vi.mock("@pipecat-ai/client-react", () => ({
 }));
 
 describe("Home page", () => {
-  test("shows configure session headline", async () => {
+  test("shows the diarization start control", async () => {
     render(
       <QueryProvider>
         <Page />
@@ -47,7 +47,7 @@ describe("Home page", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Configure Session/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /start session/i })).toBeInTheDocument();
     });
   });
 });

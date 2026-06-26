@@ -12,9 +12,8 @@ import { AppShell } from "@/components/app/AppShell";
 import { QueryProvider } from "@/providers/query-provider";
 
 export const metadata = {
-  title: "Temple-cat — Live Speaker Diarization",
-  description:
-    "Real-time voice AI with Deepgram speaker diarization, built on Pipecat and Next.js",
+  title: "Freya — Speaker Diarization",
+  description: "Real-time voice AI with live speaker diarization, by Freya.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -23,7 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         <QueryProvider>
           <div id="root">
-            <AppShell title="Temple-cat">{children}</AppShell>
+            <AppShell title="Freya">{children}</AppShell>
           </div>
         </QueryProvider>
       </body>
