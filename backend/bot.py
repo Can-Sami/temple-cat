@@ -19,8 +19,8 @@ The session JSON (``--body`` / ``--config``) must match the SessionConfig schema
 STT / TTS \"temperature\" (0–1 from the UI):
     Deepgram STT has no sampling temperature; we map stt_temperature to
     endpointing (silence ms before finalizing), per Pipecat Deepgram settings.
-    Cartesia Sonic-3 exposes generation guidance via GenerationConfig; we map
-    tts_temperature to volume (and keep explicit speed from the UI).
+    Freya TTS (OpenAI-compatible /audio/speech) takes an explicit speed but
+    has no per-request temperature knob, so tts_temperature is currently unused.
 """
 from __future__ import annotations
 
@@ -53,7 +53,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
 from pipecat.runner.types import DailyRunnerArguments
-from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
@@ -61,13 +60,17 @@ from pipecat.turns.user_start import MinWordsUserTurnStartStrategy, VADUserTurnS
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from app.models.config import SessionConfig
+from app.services.diarization_processor import DiarizationProcessor
+from app.services.freya_tts import FreyaTTSService
 from app.services.help_center_rag_processor import HelpCenterRAGProcessor
-from app.services.openai_key_env import normalize_openai_api_key
 from app.services.interruptibility import build_vad_tuning, interruptibility_min_words_threshold
 from app.services.pipecat_tracing import configure_pipecat_tracing_from_env, tracing_enabled_from_env
 
 AUDIO_IN_HZ = 16000
-AUDIO_OUT_HZ = 24000
+# KKB TTS emits 48 kHz PCM (verified via the /audio/speech WAV header). Run the
+# whole output path at 48 kHz so TTS frames are tagged at their true rate and no
+# (mis)resampling stretches the audio. Daily/WebRTC is natively 48 kHz.
+AUDIO_OUT_HZ = 48000
 
 
 def build_daily_params() -> DailyParams:
@@ -94,16 +97,6 @@ def stt_endpointing_ms(stt_temperature: float) -> int:
     t = max(0.0, min(1.0, float(stt_temperature)))
     # 0 -> 450 ms, 1 -> 80 ms
     return int(round(450.0 - t * 370.0))
-
-
-def build_cartesia_input_params(config: SessionConfig) -> CartesiaTTSService.InputParams:
-    """Cartesia Sonic-3 generation guidance via GenerationConfig (pipecat-ai 1.1.x)."""
-    speed = float(config.tts_speed)
-    tts_temp = max(0.0, min(1.0, float(config.tts_temperature)))
-    volume = max(0.5, min(2.0, 0.7 + 0.55 * tts_temp))
-    return CartesiaTTSService.InputParams(
-        generation_config=GenerationConfig(speed=speed, volume=volume),
-    )
 
 
 def build_pipeline_params(*, conversation_id: str | None, session_config_json: str | None) -> PipelineParams:
@@ -175,36 +168,36 @@ def build_voice_pipeline_task(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         sample_rate=AUDIO_IN_HZ,
         settings=DeepgramSTTService.Settings(
+            diarize=True,
             endpointing=stt_endpointing_ms(config.stt_temperature),
+            # Turkish transcription. nova-2 supports Turkish + diarization.
+            model="nova-2",
+            language="tr",
         ),
     )
 
     llm = OpenAILLMService(
-        api_key=normalize_openai_api_key(os.environ["OPENAI_API_KEY"]),
+        base_url=os.environ.get("LLM_URL", "https://kkb-llm.freyavoice.ai/v1"),
+        api_key=os.environ.get("LLM_API_KEY", "dummy"),
         settings=OpenAILLMService.Settings(
-            model="gpt-4o",
-            system_instruction=config.system_prompt,
+            model=os.environ.get("LLM_MODEL", "google/gemma-4-31B-it"),
+            # Force Turkish replies regardless of the per-session prompt (TTS voice
+            # "leyla" is Turkish, so English replies would be mispronounced).
+            system_instruction=f"{config.system_prompt}\n\nHer zaman ve yalnızca Türkçe yanıt ver.",
             temperature=config.llm_temperature,
             max_completion_tokens=config.llm_max_tokens,
         ),
     )
 
-    voice_name = config.tts_voice
-    voice_map = {
-        "sonic": "79a125e8-cd45-4c13-8a67-188112f4dd22",
-        "alloy": "79a125e8-cd45-4c13-8a67-188112f4dd22",  # fallback
-        "katie": "f786b574-daa5-4673-aa0c-cbe3e8534c02",
-        "kiefer": "228fca29-3a0a-435c-8728-5cb483251068",
-        "tessa": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
-        "kyle": "c961b81c-a935-4c17-bfb3-ba2239de8c2f",
-    }
-    voice_uuid = voice_map.get(voice_name.lower(), voice_name)
-
-    tts = CartesiaTTSService(
-        api_key=os.environ["CARTESIA_API_KEY"],
-        voice_id=voice_uuid,
+    tts = FreyaTTSService(
+        api_key=os.environ.get("TTS_API_KEY") or os.environ.get("FREYA_MODEL_API_KEY", ""),
+        base_url=os.environ["TTS_URL"],
+        voice=os.environ.get("TTS_VOICE_ID", "leyla"),
+        model=os.environ.get("TTS_MODEL", "tts-1"),
+        # KKB TTS (OpenAI-compatible tts-1) emits 24 kHz PCM; declaring 16 kHz
+        # played it 1.5x slow. Match the transport rate → correct speed, no resample.
         sample_rate=AUDIO_OUT_HZ,
-        params=build_cartesia_input_params(config),
+        speed=config.tts_speed,
     )
 
     context = LLMContext(messages=[])
@@ -225,6 +218,7 @@ def build_voice_pipeline_task(
     )
 
     rtvi = RTVIProcessor()
+    diarization = DiarizationProcessor()
     help_center_rag = HelpCenterRAGProcessor()
 
     pipeline = Pipeline(
@@ -232,6 +226,7 @@ def build_voice_pipeline_task(
             transport.input(),
             rtvi,
             stt,
+            diarization,
             context_aggregator.user(),
             help_center_rag,
             llm,

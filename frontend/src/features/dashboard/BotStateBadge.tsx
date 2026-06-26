@@ -1,37 +1,34 @@
-import { Badge, badgeVariants } from "@/components/ui/badge";
-import type { VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+import type { BotState } from "./voiceBotState";
 
 export type { BotState } from "./voiceBotState";
 
-type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
-
-function badgeVariantForState(state: import("./voiceBotState").BotState): BadgeVariant {
-  if (state === "Speaking") {
-    return "default";
-  }
-  if (state === "Thinking") {
-    return "secondary";
-  }
-  if (state === "Interrupted") {
-    return "destructive";
-  }
-  return "outline";
-}
+/** Dot color per bot state — kept off the speaker palette so the two never read as the same thing. */
+const DOT_CLASS: Record<BotState, string> = {
+  Listening: "bg-muted-foreground",
+  Thinking: "bg-brand animate-pulse",
+  Speaking: "bg-success",
+  Interrupted: "bg-destructive",
+};
 
 interface Props {
-  readonly state: import("./voiceBotState").BotState;
+  readonly state: BotState;
 }
 
 export function BotStateBadge({ state }: Props) {
-  const variant = badgeVariantForState(state);
-
   return (
-    <Badge
-      aria-label={state === "Interrupted" ? "Bot State: interrupted — you spoke over the bot" : "Bot State"}
+    <span
+      aria-label={
+        state === "Interrupted"
+          ? "Bot state: interrupted — you spoke over the bot"
+          : "Bot state"
+      }
       aria-live={state === "Interrupted" ? "assertive" : "polite"}
-      variant={variant}
+      className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary/60 px-3 py-1 text-sm font-medium text-foreground"
     >
+      <span className={cn("h-2 w-2 shrink-0 rounded-full", DOT_CLASS[state])} />
       {state}
-    </Badge>
+    </span>
   );
 }

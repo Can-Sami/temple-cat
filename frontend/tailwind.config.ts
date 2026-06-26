@@ -6,7 +6,9 @@ const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     fontFamily: {
-      sans: ["var(--font-geist-sans)", ...defaultTheme.fontFamily.sans],
+      sans: ["Figtree Variable", "Figtree", ...defaultTheme.fontFamily.sans],
+      mono: ["Space Mono", ...defaultTheme.fontFamily.mono],
+      display: ["Figtree Variable", "Figtree", ...defaultTheme.fontFamily.sans],
     },
     extend: {
       colors: {
@@ -43,6 +45,28 @@ const config: Config = {
         border: "var(--border)",
         input: "var(--input)",
         ring: "var(--ring)",
+        // Freya brand cyan (semantic, non-shadcn surfaces).
+        brand: {
+          DEFAULT: "var(--brand)",
+          hover: "var(--brand-hover)",
+          foreground: "var(--brand-foreground)",
+          subtle: "var(--brand-subtle)",
+        },
+        // Diarization speakers.
+        speaker1: {
+          DEFAULT: "var(--speaker-1)",
+          subtle: "var(--speaker-1-subtle)",
+        },
+        speaker2: {
+          DEFAULT: "var(--speaker-2)",
+          subtle: "var(--speaker-2-subtle)",
+        },
+        speaker3: {
+          DEFAULT: "var(--speaker-3)",
+          subtle: "var(--speaker-3-subtle)",
+        },
+        success: "var(--success)",
+        warning: "var(--warning)",
         chart: {
           "1": "var(--chart-1)",
           "2": "var(--chart-2)",
@@ -65,6 +89,8 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 12px)",
       },
       keyframes: {
         "accordion-down": {
@@ -75,10 +101,33 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "fade-up": {
+          from: { opacity: "0", transform: "translateY(10px)" },
+          to: { opacity: "1", transform: "none" },
+        },
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        pop: {
+          "0%": { transform: "scale(1)" },
+          "45%": { transform: "scale(1.05)" },
+          "100%": { transform: "scale(1)" },
+        },
+        "pulse-speaker": {
+          "0%": {
+            boxShadow: "0 0 0 0 color-mix(in oklch, var(--pulse-color, var(--brand)) 35%, transparent)",
+          },
+          "70%, 100%": { boxShadow: "0 0 0 8px transparent" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "fade-up": "fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "fade-in": "fade-in 0.4s ease both",
+        pop: "pop 0.32s cubic-bezier(0.16, 1, 0.3, 1)",
+        "pulse-speaker": "pulse-speaker 2.4s ease-out infinite",
       },
     },
   },
@@ -86,4 +135,3 @@ const config: Config = {
 };
 
 export default config;
-

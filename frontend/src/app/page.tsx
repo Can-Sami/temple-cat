@@ -15,6 +15,14 @@ import { BotStateBadge } from "../features/dashboard/BotStateBadge";
 import type { BotState } from "../features/dashboard/voiceBotState";
 import { botStateOnUserStartedSpeaking } from "../features/dashboard/voiceBotState";
 import { LatencyPanel } from "../features/dashboard/LatencyPanel";
+import { SpeakerBadge } from "../features/dashboard/SpeakerBadge";
+import { TranscriptPanel } from "../features/dashboard/TranscriptPanel";
+import {
+  appendTurn,
+  emptyTranscript,
+  parseSpeakerMessage,
+  type TranscriptState,
+} from "../features/dashboard/speakerTranscript";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -39,6 +47,8 @@ function InterviewDashboard() {
   const [wallClockLatencyMs, setWallClockLatencyMs] = useState(0);
   const [backendTtsTtfbMs, setBackendTtsTtfbMs] = useState<number | null>(null);
   const [transportError, setTransportError] = useState<string | null>(null);
+  /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
+  const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
   /** True between BotStartedSpeaking and BotStoppedSpeaking (bot audio playing). */
   const botAudioActiveRef = useRef(false);
   /** Must be a ref — RTVI callbacks do not reliably see fresh React state for latency math. */
@@ -90,18 +100,31 @@ function InterviewDashboard() {
     }
   });
 
+  // Diarization: backend emits `{type:"speaker-transcript", speaker, text, final}`.
+  // Unwrap defensively in case the client hands us the RTVI envelope instead of the payload.
+  useRTVIClientEvent(RTVIEvent.ServerMessage, (data: unknown) => {
+    const parsed =
+      parseSpeakerMessage(data) ??
+      parseSpeakerMessage((data as { data?: unknown } | null)?.data);
+    if (parsed) {
+      setTranscript((prev) => appendTurn(prev, parsed));
+    }
+  });
+
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
     botAudioActiveRef.current = false;
     setSessionActive(false);
     setBotState("Listening");
     setWallClockLatencyMs(0);
     setBackendTtsTtfbMs(null);
+    setTranscript(emptyTranscript());
     userSilenceStartRef.current = null;
     resetVoiceSession();
   });
 
   async function handleStartSession(payload: SessionConfigPayload) {
     setTransportError(null);
+    setTranscript(emptyTranscript());
     try {
       const creds = await createSession.mutateAsync(payload);
       try {
@@ -129,6 +152,7 @@ function InterviewDashboard() {
     userSilenceStartRef.current = null;
     setWallClockLatencyMs(0);
     setBackendTtsTtfbMs(null);
+    setTranscript(emptyTranscript());
     resetVoiceSession();
     setTransportError(null);
   }
@@ -138,24 +162,24 @@ function InterviewDashboard() {
   const sessionError = transportError ?? apiErrorMessage;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          Start a voice interview session, monitor bot state, and stop cleanly when you&apos;re done.
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Start a session and speak. With two people sharing one mic, Deepgram diarization labels
+        each voice as <span className="font-medium text-foreground">Speaker 1</span> /{" "}
+        <span className="font-medium text-foreground">Speaker 2</span> in the live transcript below.
+      </p>
 
       {sessionActive ? (
-        <Card>
+        <Card className="animate-fade-up">
           <CardHeader className="border-b">
             <CardTitle>Live Session</CardTitle>
-            <CardDescription>You&apos;re connected. Watch status and latency while you speak.</CardDescription>
+            <CardDescription>You&apos;re connected. Watch who&apos;s speaking, the bot state, and latency.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4 pt-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex flex-wrap items-center gap-3">
-                <BotStateBadge state={botState} />
-                <Separator orientation="vertical" className="hidden h-8 md:block" />
+          <CardContent className="flex flex-col gap-5 pt-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <BotStateBadge state={botState} />
+              <SpeakerBadge speaker={transcript.currentSpeaker} />
+              <div className="ml-auto">
                 <LatencyPanel
                   backendTtsTtfbMs={backendTtsTtfbMs}
                   wallClockLatencyMs={wallClockLatencyMs}
@@ -165,11 +189,15 @@ function InterviewDashboard() {
 
             <Separator />
 
+            <TranscriptPanel turns={transcript.turns} />
+
+            <Separator />
+
             <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card className="animate-fade-up">
           <CardHeader className="border-b">
             <CardTitle>Configure Session</CardTitle>
             <CardDescription>Set prompts and model parameters before connecting.</CardDescription>
@@ -204,14 +232,13 @@ export default function Page() {
       transport,
       enableMic: true,
     });
-    // Server emits `user-llm-text` per RTVI; client-js 1.7 has no handler branch yet (DEBUG fallback).
     rtviClient.setLogLevel(LogLevel.INFO);
     setClient(rtviClient);
   }, []);
 
   if (!client) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
         <div className="h-4 w-2/3 max-w-md animate-pulse rounded-md bg-muted" />
         <div className="h-40 w-full animate-pulse rounded-xl bg-muted" />
       </div>
