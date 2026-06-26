@@ -61,6 +61,11 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from app.models.config import SessionConfig
 from app.services.diarization_processor import DiarizationProcessor
+from app.services.nvidia_diarization import (
+    NvidiaAudioCapture,
+    NvidiaDiarSession,
+    NvidiaSpeakerEmitter,
+)
 from app.services.freya_tts import FreyaTTSService
 from app.services.help_center_rag_processor import HelpCenterRAGProcessor
 from app.services.interruptibility import build_vad_tuning, interruptibility_min_words_threshold
@@ -164,11 +169,14 @@ def build_voice_pipeline_task(
         build_daily_params(),
     )
 
+    engine = config.diarization_engine
+
     stt = DeepgramSTTService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         sample_rate=AUDIO_IN_HZ,
         settings=DeepgramSTTService.Settings(
-            diarize=True,
+            # Deepgram diarization only powers Freya 1; Freya 2 uses the external model.
+            diarize=(engine == "freya1"),
             endpointing=stt_endpointing_ms(config.stt_temperature),
             # Turkish transcription. nova-2 supports Turkish + diarization.
             model="nova-2",
@@ -218,16 +226,38 @@ def build_voice_pipeline_task(
     )
 
     rtvi = RTVIProcessor()
-    diarization = DiarizationProcessor()
     help_center_rag = HelpCenterRAGProcessor()
 
-    pipeline = Pipeline(
-        [
+    # Diarization engine: Freya 1 = Deepgram (speaker rides on the transcript);
+    # Freya 2 = external /diarize model (capture audio before STT, emit after).
+    if engine == "freya2":
+        nvidia_session = NvidiaDiarSession(sample_rate=AUDIO_IN_HZ)
+        user_chain: list[Any] = [
+            transport.input(),
+            rtvi,
+            NvidiaAudioCapture(nvidia_session),
+            stt,
+            NvidiaSpeakerEmitter(
+                nvidia_session,
+                url=os.environ.get("NVIDIA_DIARIZE_URL", ""),
+                profile=config.diarization_profile,
+            ),
+            context_aggregator.user(),
+        ]
+        _logger.info("diarization engine=freya2 profile=%s", config.diarization_profile)
+    else:
+        user_chain = [
             transport.input(),
             rtvi,
             stt,
-            diarization,
+            DiarizationProcessor(),
             context_aggregator.user(),
+        ]
+        _logger.info("diarization engine=freya1 (deepgram)")
+
+    pipeline = Pipeline(
+        [
+            *user_chain,
             help_center_rag,
             llm,
             tts,

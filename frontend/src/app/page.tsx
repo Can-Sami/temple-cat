@@ -19,11 +19,52 @@ import {
   parseSpeakerMessage,
   type TranscriptState,
 } from "../features/dashboard/speakerTranscript";
-import { DEFAULT_SESSION_CONFIG } from "../features/session-config/sessionConfig";
+import {
+  DEFAULT_SESSION_CONFIG,
+  type DiarizationEngine,
+  type DiarizationProfile,
+} from "../features/session-config/sessionConfig";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+function Segmented<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  readonly label: string;
+  readonly value: T;
+  readonly onChange: (v: T) => void;
+  readonly options: ReadonlyArray<{ value: T; label: string }>;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="inline-flex w-fit rounded-lg border border-border bg-secondary/40 p-0.5">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={value === o.value}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
+              value === o.value
+                ? "bg-brand text-brand-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function DiarizationConsole() {
   const client = usePipecatClient();
@@ -32,6 +73,8 @@ function DiarizationConsole() {
   const [transportError, setTransportError] = useState<string | null>(null);
   /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
   const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
+  const [engine, setEngine] = useState<DiarizationEngine>("freya1");
+  const [profile, setProfile] = useState<DiarizationProfile>("accurate");
 
   // The one event that matters: each finalized turn carries its speaker label.
   // Unwrap defensively in case the client hands us the RTVI envelope.
@@ -54,7 +97,11 @@ function DiarizationConsole() {
     setTransportError(null);
     setTranscript(emptyTranscript());
     try {
-      const creds = await createSession.mutateAsync(DEFAULT_SESSION_CONFIG);
+      const creds = await createSession.mutateAsync({
+        ...DEFAULT_SESSION_CONFIG,
+        diarization_engine: engine,
+        diarization_profile: profile,
+      });
       try {
         await client?.connect({ url: creds.room_url, token: creds.token });
         setSessionActive(true);
@@ -113,16 +160,39 @@ function DiarizationConsole() {
           <TranscriptPanel turns={transcript.turns} />
         </div>
       ) : (
-        <div>
-          <Button
-            type="button"
-            onClick={handleStart}
-            disabled={createSession.isPending}
-            aria-busy={createSession.isPending}
-            className="h-11 px-6 text-base"
-          >
-            {createSession.isPending ? "Starting…" : "Start session"}
-          </Button>
+        <div className="flex flex-col gap-5">
+          <Segmented
+            label="Diarization engine"
+            value={engine}
+            onChange={setEngine}
+            options={[
+              { value: "freya1", label: "Freya 1" },
+              { value: "freya2", label: "Freya 2" },
+            ]}
+          />
+          {engine === "freya2" ? (
+            <Segmented
+              label="Responsiveness"
+              value={profile}
+              onChange={setProfile}
+              options={[
+                { value: "fast", label: "Fast" },
+                { value: "balanced", label: "Balanced" },
+                { value: "accurate", label: "Accurate" },
+              ]}
+            />
+          ) : null}
+          <div>
+            <Button
+              type="button"
+              onClick={handleStart}
+              disabled={createSession.isPending}
+              aria-busy={createSession.isPending}
+              className="h-11 px-6 text-base"
+            >
+              {createSession.isPending ? "Starting…" : "Start session"}
+            </Button>
+          </div>
         </div>
       )}
 

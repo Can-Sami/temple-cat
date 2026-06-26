@@ -13,6 +13,11 @@ class SessionConfig(BaseModel):
     tts_temperature: confloat(strict=True, ge=0.0, le=1.0) = Field(...)
     interruptibility_percentage: conint(strict=True, ge=0, le=100) = Field(...)
 
+    # Diarization engine selection (customer-facing names): "freya1" = Deepgram
+    # streaming, "freya2" = external /diarize model. profile tunes Freya 2 latency.
+    diarization_engine: constr(strict=True, min_length=1) = Field(default="freya1")
+    diarization_profile: constr(strict=True, min_length=1) = Field(default="accurate")
+
     # Pydantic: forbid extra/unknown fields
     class Config:
         extra = "forbid"

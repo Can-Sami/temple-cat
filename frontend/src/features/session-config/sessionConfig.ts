@@ -3,6 +3,11 @@
  * SessionConfig, but none of it is worth a form here — the demo is about the
  * live speaker labels, so we start with sensible Turkish defaults in one click.
  */
+/** Diarization engine (customer-facing names; mapping is internal). */
+export type DiarizationEngine = "freya1" | "freya2";
+/** Freya 2 responsiveness preset → endpoint latency config. */
+export type DiarizationProfile = "fast" | "balanced" | "accurate";
+
 export interface SessionConfigPayload {
   system_prompt: string;
   llm_temperature: number;
@@ -12,6 +17,8 @@ export interface SessionConfigPayload {
   tts_speed: number;
   tts_temperature: number;
   interruptibility_percentage: number;
+  diarization_engine: DiarizationEngine;
+  diarization_profile: DiarizationProfile;
 }
 
 export const DEFAULT_SESSION_CONFIG: SessionConfigPayload = {
@@ -23,4 +30,6 @@ export const DEFAULT_SESSION_CONFIG: SessionConfigPayload = {
   tts_speed: 1,
   tts_temperature: 0.3,
   interruptibility_percentage: 70,
+  diarization_engine: "freya1",
+  diarization_profile: "accurate",
 };
