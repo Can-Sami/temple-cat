@@ -1,119 +1,70 @@
 "use client";
 
 import { DailyTransport } from "@pipecat-ai/daily-transport";
+import { LogLevel, PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import {
-  LogLevel,
-  PipecatClient,
-  type PipecatMetricsData,
-  RTVIEvent,
-} from "@pipecat-ai/client-js";
-import { PipecatClientAudio, PipecatClientProvider, usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useState, useEffect, useRef } from "react";
-import { SessionConfigForm, SessionConfigPayload } from "../features/session-config/SessionConfigForm";
+  PipecatClientAudio,
+  PipecatClientProvider,
+  usePipecatClient,
+  useRTVIClientEvent,
+} from "@pipecat-ai/client-react";
+import { useEffect, useState } from "react";
+
 import { SessionControlPanel } from "../features/session-control/SessionControlPanel";
-import { BotStateBadge } from "../features/dashboard/BotStateBadge";
-import type { BotState } from "../features/dashboard/voiceBotState";
-import { botStateOnUserStartedSpeaking } from "../features/dashboard/voiceBotState";
-import { LatencyPanel } from "../features/dashboard/LatencyPanel";
+import { SpeakerBadge } from "../features/dashboard/SpeakerBadge";
+import { TranscriptPanel } from "../features/dashboard/TranscriptPanel";
+import {
+  appendTurn,
+  emptyTranscript,
+  parseSpeakerMessage,
+  type TranscriptState,
+} from "../features/dashboard/speakerTranscript";
+import { DEFAULT_SESSION_CONFIG } from "../features/session-config/sessionConfig";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 
-function extractBackendTtsTtfbMs(data: PipecatMetricsData): number | null {
-  const entries = data.ttfb ?? [];
-  const tts = entries.find((m) => /tts/i.test(String(m.processor)));
-  if (!tts || typeof tts.value !== "number") {
-    return null;
-  }
-  return Math.round(tts.value * 1000);
-}
-
-// Component inside the RTVIProvider
-function InterviewDashboard() {
+function DiarizationConsole() {
   const client = usePipecatClient();
   const { createSession, purgeCredentials, resetVoiceSession } = useVoiceSession();
   const [sessionActive, setSessionActive] = useState(false);
-  const [botState, setBotState] = useState<BotState>("Listening");
-  const [wallClockLatencyMs, setWallClockLatencyMs] = useState(0);
-  const [backendTtsTtfbMs, setBackendTtsTtfbMs] = useState<number | null>(null);
   const [transportError, setTransportError] = useState<string | null>(null);
-  /** True between BotStartedSpeaking and BotStoppedSpeaking (bot audio playing). */
-  const botAudioActiveRef = useRef(false);
-  /** Must be a ref — RTVI callbacks do not reliably see fresh React state for latency math. */
-  const userSilenceStartRef = useRef<number | null>(null);
+  /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
+  const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
 
-  // RTVI Event listeners to drive state machine deterministically based on pipeline emitted frames
-  useRTVIClientEvent(RTVIEvent.BotStartedSpeaking, () => {
-    botAudioActiveRef.current = true;
-    setBotState("Speaking");
-    const start = userSilenceStartRef.current;
-    if (start != null) {
-      setWallClockLatencyMs(Math.round(performance.now() - start));
-      userSilenceStartRef.current = null;
-    }
-  });
-
-  useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, () => {
-    botAudioActiveRef.current = false;
-    setBotState("Listening");
-  });
-
-  useRTVIClientEvent(RTVIEvent.UserStartedSpeaking, () => {
-    setBotState(botStateOnUserStartedSpeaking(botAudioActiveRef.current));
-    userSilenceStartRef.current = null;
-  });
-
-  useRTVIClientEvent(RTVIEvent.UserStoppedSpeaking, () => {
-    if (botAudioActiveRef.current) {
-      return;
-    }
-    userSilenceStartRef.current = performance.now();
-  });
-
-  useRTVIClientEvent(RTVIEvent.BotLlmStarted, () => {
-    if (botAudioActiveRef.current) {
-      return;
-    }
-    setBotState("Thinking");
-  });
-
-  useRTVIClientEvent(RTVIEvent.BotLlmStopped, () => {
-    setBotState((prev) => (prev === "Thinking" ? "Listening" : prev));
-  });
-
-  useRTVIClientEvent(RTVIEvent.Metrics, (data: PipecatMetricsData) => {
-    const ms = extractBackendTtsTtfbMs(data);
-    if (ms != null) {
-      setBackendTtsTtfbMs(ms);
+  // The one event that matters: each finalized turn carries its speaker label.
+  // Unwrap defensively in case the client hands us the RTVI envelope.
+  useRTVIClientEvent(RTVIEvent.ServerMessage, (data: unknown) => {
+    const parsed =
+      parseSpeakerMessage(data) ??
+      parseSpeakerMessage((data as { data?: unknown } | null)?.data);
+    if (parsed) {
+      setTranscript((prev) => appendTurn(prev, parsed));
     }
   });
 
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
-    botAudioActiveRef.current = false;
     setSessionActive(false);
-    setBotState("Listening");
-    setWallClockLatencyMs(0);
-    setBackendTtsTtfbMs(null);
-    userSilenceStartRef.current = null;
+    setTranscript(emptyTranscript());
     resetVoiceSession();
   });
 
-  async function handleStartSession(payload: SessionConfigPayload) {
+  async function handleStart() {
     setTransportError(null);
+    setTranscript(emptyTranscript());
     try {
-      const creds = await createSession.mutateAsync(payload);
+      const creds = await createSession.mutateAsync(DEFAULT_SESSION_CONFIG);
       try {
         await client?.connect({ url: creds.room_url, token: creds.token });
         setSessionActive(true);
       } catch (connectErr) {
         purgeCredentials();
-        const message =
+        setTransportError(
           connectErr instanceof Error
             ? connectErr.message
-            : "Could not connect to the voice room.";
-        setTransportError(message);
+            : "Could not connect to the voice room."
+        );
         console.error(connectErr);
       }
     } catch (err) {
@@ -121,106 +72,87 @@ function InterviewDashboard() {
     }
   }
 
-  async function handleStopSession() {
+  async function handleStop() {
     await client?.disconnect();
-    botAudioActiveRef.current = false;
     setSessionActive(false);
-    setBotState("Listening");
-    userSilenceStartRef.current = null;
-    setWallClockLatencyMs(0);
-    setBackendTtsTtfbMs(null);
+    setTranscript(emptyTranscript());
     resetVoiceSession();
     setTransportError(null);
   }
 
-  const apiErrorMessage =
+  const apiError =
     createSession.error instanceof Error ? createSession.error.message : null;
-  const sessionError = transportError ?? apiErrorMessage;
+  const sessionError = transportError ?? apiError;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          Start a voice interview session, monitor bot state, and stop cleanly when you&apos;re done.
+        <h2 className="text-balance font-display text-2xl font-extrabold tracking-tight md:text-3xl">
+          Live speaker diarization
+        </h2>
+        <p className="max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+          Start a session and talk. When two people share one mic, each voice is tagged{" "}
+          <span className="font-medium text-foreground">Speaker 1</span> /{" "}
+          <span className="font-medium text-foreground">Speaker 2</span> live below.
         </p>
       </div>
 
+      {sessionError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Could not start session</AlertTitle>
+          <AlertDescription>{sessionError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       {sessionActive ? (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Live Session</CardTitle>
-            <CardDescription>You&apos;re connected. Watch status and latency while you speak.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 pt-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex flex-wrap items-center gap-3">
-                <BotStateBadge state={botState} />
-                <Separator orientation="vertical" className="hidden h-8 md:block" />
-                <LatencyPanel
-                  backendTtsTtfbMs={backendTtsTtfbMs}
-                  wallClockLatencyMs={wallClockLatencyMs}
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <SessionControlPanel isActive={true} onStart={() => {}} onStop={handleStopSession} />
-          </CardContent>
-        </Card>
+        <div className="flex animate-fade-up flex-col gap-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SpeakerBadge speaker={transcript.currentSpeaker} />
+            <SessionControlPanel isActive onStart={() => {}} onStop={handleStop} />
+          </div>
+          <TranscriptPanel turns={transcript.turns} />
+        </div>
       ) : (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Configure Session</CardTitle>
-            <CardDescription>Set prompts and model parameters before connecting.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 pt-6">
-            {sessionError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not start session</AlertTitle>
-                <AlertDescription>{sessionError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <SessionConfigForm
-              onSubmit={handleStartSession}
-              submitting={createSession.isPending}
-            />
-          </CardContent>
-        </Card>
+        <div>
+          <Button
+            type="button"
+            onClick={handleStart}
+            disabled={createSession.isPending}
+            aria-busy={createSession.isPending}
+            className="h-11 px-6 text-base"
+          >
+            {createSession.isPending ? "Starting…" : "Start session"}
+          </Button>
+        </div>
       )}
+
       <PipecatClientAudio />
     </div>
   );
 }
 
-// Wrapper to provide the client
 export default function Page() {
   const [client, setClient] = useState<PipecatClient | null>(null);
 
   useEffect(() => {
     const transport = new DailyTransport();
-    const rtviClient = new PipecatClient({
-      transport,
-      enableMic: true,
-    });
-    // Server emits `user-llm-text` per RTVI; client-js 1.7 has no handler branch yet (DEBUG fallback).
+    const rtviClient = new PipecatClient({ transport, enableMic: true });
     rtviClient.setLogLevel(LogLevel.INFO);
     setClient(rtviClient);
   }, []);
 
   if (!client) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="h-4 w-2/3 max-w-md animate-pulse rounded-md bg-muted" />
-        <div className="h-40 w-full animate-pulse rounded-xl bg-muted" />
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        <div className="h-6 w-2/3 max-w-md animate-pulse rounded-md bg-muted" />
+        <div className="h-32 w-full animate-pulse rounded-xl bg-muted" />
       </div>
     );
   }
 
   return (
     <PipecatClientProvider client={client}>
-      <InterviewDashboard />
+      <DiarizationConsole />
     </PipecatClientProvider>
   );
 }

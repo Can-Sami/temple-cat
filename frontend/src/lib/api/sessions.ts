@@ -1,4 +1,4 @@
-import type { SessionConfigPayload } from "@/features/session-config/SessionConfigForm";
+import type { SessionConfigPayload } from "@/features/session-config/sessionConfig";
 import { ApiError, formatApiErrorBody } from "@/lib/api/http";
 
 export interface VoiceSessionCredentials {

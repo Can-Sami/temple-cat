@@ -16,17 +16,20 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "flex items-center justify-between gap-4 border-b bg-background px-3 py-2 md:px-4",
+        "sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-border/80 bg-background/80 px-4 py-3 backdrop-blur-md md:px-6",
         className
       )}
     >
-      <div className="flex items-center gap-2">
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-medium md:text-base">{title}</h1>
-        </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <h1 className="flex items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/freya_logo_white.svg" alt={title} className="h-6 w-auto md:h-7" />
+        </h1>
+        <span className="hidden border-l border-border pl-3 font-mono text-xs text-muted-foreground sm:inline">
+          Speaker Diarization
+        </span>
       </div>
       {right ? <div className="shrink-0">{right}</div> : null}
     </header>
   );
 }
-
