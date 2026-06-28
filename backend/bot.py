@@ -206,7 +206,10 @@ def build_voice_pipeline_task(
         # Listen-only: STT + diarization emit "who's speaking" over RTVI. No LLM/TTS,
         # no assistant — the bot just listens and reports the active speaker.
         _logger.info("engine=%s provider=%s diar-only lang=%s", engine, provider, stt_language)
-        pipeline = Pipeline([transport.input(), rtvi, stt, diar_processor])
+        # transport.output() carries the RTVI messages (bot-ready handshake + the
+        # speaker server-messages) back to the client — without it, client.connect()
+        # never resolves. No audio is ever fed to it (listen-only).
+        pipeline = Pipeline([transport.input(), rtvi, stt, diar_processor, transport.output()])
     else:
         # Freya 1 = Speechmatics full voice assistant: STT+diarize -> LLM -> TTS (Turkish).
         _logger.info("engine=freya1 provider=speechmatics full-assistant lang=tr")
