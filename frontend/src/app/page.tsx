@@ -111,10 +111,22 @@ function DiarizationConsole() {
         diarization_engine: engine,
       });
       try {
+        // A prior failed/incomplete session can leave the client "started", which
+        // makes the next connect() throw. Disconnect first so a fresh start is clean.
+        try {
+          await client?.disconnect();
+        } catch {
+          /* wasn't connected — fine */
+        }
         await client?.connect({ url: creds.room_url, token: creds.token });
         setSessionActive(true);
       } catch (connectErr) {
         purgeCredentials();
+        try {
+          await client?.disconnect();
+        } catch {
+          /* ignore */
+        }
         setTransportError(
           connectErr instanceof Error
             ? connectErr.message
