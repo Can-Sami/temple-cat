@@ -17,7 +17,9 @@ import { TranscriptPanel } from "../features/dashboard/TranscriptPanel";
 import {
   appendTurn,
   emptyTranscript,
+  parseSpeakerActive,
   parseSpeakerMessage,
+  setCurrentSpeaker,
   type TranscriptState,
 } from "../features/dashboard/speakerTranscript";
 import {
@@ -87,14 +89,20 @@ function DiarizationConsole() {
         : "Diarization only";
   const indicatorProvider = engine === "freya2" ? "Deepgram" : undefined;
 
-  // The one event that matters: each finalized turn carries its speaker label.
-  // Unwrap defensively in case the client hands us the RTVI envelope.
+  // Two signals, both carrying a speaker label (unwrap defensively in case the
+  // client hands us the RTVI envelope):
+  //   • speaker-transcript (final) → append a transcript turn
+  //   • speaker-active (interim)   → just light the live indicator, no turn
   useRTVIClientEvent(RTVIEvent.ServerMessage, (data: unknown) => {
-    const parsed =
-      parseSpeakerMessage(data) ??
-      parseSpeakerMessage((data as { data?: unknown } | null)?.data);
+    const envelope = (data as { data?: unknown } | null)?.data;
+    const parsed = parseSpeakerMessage(data) ?? parseSpeakerMessage(envelope);
     if (parsed) {
       setTranscript((prev) => appendTurn(prev, parsed));
+      return;
+    }
+    const active = parseSpeakerActive(data) ?? parseSpeakerActive(envelope);
+    if (active !== null) {
+      setTranscript((prev) => setCurrentSpeaker(prev, active));
     }
   });
 

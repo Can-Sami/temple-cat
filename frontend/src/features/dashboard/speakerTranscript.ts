@@ -77,6 +77,35 @@ export function parseSpeakerMessage(data: unknown): ParsedTurn | null {
   return { speaker, text };
 }
 
+/**
+ * Parse a lightweight `speaker-active` message — the live "who's talking now"
+ * signal emitted off interim transcripts (no text). Returns the 0-based speaker
+ * index, or null if this isn't a speaker-active message.
+ */
+export function parseSpeakerActive(data: unknown): number | null {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+  const msg = data as Record<string, unknown>;
+  if (msg.type !== "speaker-active") {
+    return null;
+  }
+  const raw = msg.speaker;
+  return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.trunc(raw)) : 0;
+}
+
+/**
+ * Update only the live speaker (for the diarization indicator) without appending
+ * a transcript turn. Returns the same state when unchanged so React can skip the
+ * re-render.
+ */
+export function setCurrentSpeaker(state: TranscriptState, speaker: number): TranscriptState {
+  if (state.currentSpeaker === speaker) {
+    return state;
+  }
+  return { ...state, currentSpeaker: speaker };
+}
+
 /** Append a finalized turn, tracking who spoke last. Returns a new state (immutable). */
 export function appendTurn(state: TranscriptState, parsed: ParsedTurn): TranscriptState {
   const turn: SpeakerTurn = {

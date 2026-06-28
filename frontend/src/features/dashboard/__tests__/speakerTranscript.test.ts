@@ -4,7 +4,9 @@ import {
   appendTurn,
   emptyTranscript,
   formatSpeaker,
+  parseSpeakerActive,
   parseSpeakerMessage,
+  setCurrentSpeaker,
   speakerColor,
 } from "../speakerTranscript";
 
@@ -53,6 +55,41 @@ describe("parseSpeakerMessage", () => {
     ["null", null],
   ])("ignores %s", (_label, input) => {
     expect(parseSpeakerMessage(input)).toBeNull();
+  });
+});
+
+describe("parseSpeakerActive", () => {
+  it("reads the live speaker off a speaker-active message", () => {
+    expect(parseSpeakerActive({ type: "speaker-active", speaker: 1 })).toBe(1);
+    expect(parseSpeakerActive({ type: "speaker-active", speaker: 0 })).toBe(0);
+  });
+
+  it("defaults a missing or invalid speaker to 0", () => {
+    expect(parseSpeakerActive({ type: "speaker-active" })).toBe(0);
+    expect(parseSpeakerActive({ type: "speaker-active", speaker: -2 })).toBe(0);
+    expect(parseSpeakerActive({ type: "speaker-active", speaker: Number.NaN })).toBe(0);
+  });
+
+  it.each([
+    ["wrong type", { type: "speaker-transcript", speaker: 0, text: "x", final: true }],
+    ["not an object", "speaker-active"],
+    ["null", null],
+  ])("ignores %s", (_label, input) => {
+    expect(parseSpeakerActive(input)).toBeNull();
+  });
+});
+
+describe("setCurrentSpeaker", () => {
+  it("updates currentSpeaker live without appending a turn", () => {
+    const s = appendTurn(emptyTranscript(), { speaker: 0, text: "hi" });
+    const s2 = setCurrentSpeaker(s, 1);
+    expect(s2.currentSpeaker).toBe(1);
+    expect(s2.turns).toBe(s.turns); // turns untouched
+  });
+
+  it("returns the same state when the speaker is unchanged", () => {
+    const s = setCurrentSpeaker(emptyTranscript(), 0);
+    expect(setCurrentSpeaker(s, 0)).toBe(s);
   });
 });
 

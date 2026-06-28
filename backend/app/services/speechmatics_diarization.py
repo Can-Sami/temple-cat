@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 
-from pipecat.frames.frames import Frame, TranscriptionFrame
+from pipecat.frames.frames import Frame, InterimTranscriptionFrame, TranscriptionFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
@@ -47,30 +47,43 @@ class SpeechmaticsDiarizationProcessor(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
+        is_final = isinstance(frame, TranscriptionFrame)
+        is_interim = isinstance(frame, InterimTranscriptionFrame)
+        if (is_final or is_interim) and direction == FrameDirection.DOWNSTREAM:
             try:
                 speaker = speaker_label_to_index(getattr(frame, "user_id", None))
-                text = frame.text or ""
-                # Diagnostic: shows the raw Speechmatics speaker label and the
-                # mapped 0-based index per finalized turn, so label drift is
-                # visible in the bot log.
-                _logger.info(
-                    "diarization turn: label=%r speaker=%s text=%r",
-                    getattr(frame, "user_id", None),
-                    speaker,
-                    text[:60],
-                )
-                await self.push_frame(
-                    RTVIServerMessageFrame(
-                        data={
-                            "type": "speaker-transcript",
-                            "speaker": speaker,
-                            "text": text,
-                            "final": True,
-                        }
-                    ),
-                    FrameDirection.DOWNSTREAM,
-                )
+                if is_final:
+                    text = frame.text or ""
+                    # Diagnostic: shows the raw Speechmatics speaker label and the
+                    # mapped 0-based index per finalized turn, so label drift is
+                    # visible in the bot log.
+                    _logger.info(
+                        "diarization turn: label=%r speaker=%s text=%r",
+                        getattr(frame, "user_id", None),
+                        speaker,
+                        text[:60],
+                    )
+                    await self.push_frame(
+                        RTVIServerMessageFrame(
+                            data={
+                                "type": "speaker-transcript",
+                                "speaker": speaker,
+                                "text": text,
+                                "final": True,
+                            }
+                        ),
+                        FrameDirection.DOWNSTREAM,
+                    )
+                else:
+                    # Live "who's talking now" off the interim — Speechmatics finals
+                    # only arrive at end-of-utterance, so without this the indicator
+                    # never lights up during continuous speech.
+                    await self.push_frame(
+                        RTVIServerMessageFrame(
+                            data={"type": "speaker-active", "speaker": speaker}
+                        ),
+                        FrameDirection.DOWNSTREAM,
+                    )
             except Exception:
                 _logger.warning(
                     "speechmatics diarization speaker emit failed; passing frame through",
