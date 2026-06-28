@@ -51,6 +51,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame
 from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
 from pipecat.runner.types import DailyRunnerArguments
 from pipecat.services.deepgram.stt import DeepgramSTTService
@@ -267,7 +268,15 @@ def build_voice_pipeline_task(
             session_config_json=config.model_dump_json(),
         ),
         "observers": [RTVIObserver(rtvi=rtvi)],
+        # Speechmatics has a low concurrent-session quota; release the STT slot on
+        # abandoned/idle sessions well before the 5-minute default.
+        "idle_timeout_secs": 120,
     }
+    if diar_only:
+        # Listen-only bots emit no Bot/UserSpeakingFrame, so the default idle
+        # detection would cancel them even while actively diarizing. Treat
+        # transcripts as activity instead.
+        task_kw["idle_timeout_frames"] = (InterimTranscriptionFrame, TranscriptionFrame)
     if tracing_on and otel_ready:
         task_kw["enable_tracing"] = True
         task_kw["enable_turn_tracking"] = True

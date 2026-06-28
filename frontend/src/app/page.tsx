@@ -74,6 +74,8 @@ function DiarizationConsole() {
   /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
   const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
   const [engine, setEngine] = useState<DiarizationEngine>("freya1");
+  /** True for the whole start flow (create session + connect), so the button stays "Starting…". */
+  const [starting, setStarting] = useState(false);
 
   // freya1 = full Speechmatics assistant (transcript); freya2/3 = diarization-only.
   const isDiarOnly = engine !== "freya1";
@@ -103,6 +105,7 @@ function DiarizationConsole() {
   });
 
   async function handleStart() {
+    setStarting(true);
     setTransportError(null);
     setTranscript(emptyTranscript());
     try {
@@ -136,6 +139,8 @@ function DiarizationConsole() {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -202,11 +207,11 @@ function DiarizationConsole() {
             <Button
               type="button"
               onClick={handleStart}
-              disabled={createSession.isPending}
-              aria-busy={createSession.isPending}
+              disabled={starting}
+              aria-busy={starting}
               className="h-11 px-6 text-base"
             >
-              {createSession.isPending ? "Starting…" : "Start session"}
+              {starting ? "Starting…" : "Start session"}
             </Button>
           </div>
         </div>
