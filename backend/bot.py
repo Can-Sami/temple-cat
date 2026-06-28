@@ -193,6 +193,9 @@ def build_voice_pipeline_task(
             sample_rate=AUDIO_IN_HZ,
             settings=DeepgramSTTService.Settings(
                 diarize=True,
+                # Stream partials so the live "who's talking" indicator reacts
+                # immediately — Deepgram finals only arrive after endpointing silence.
+                interim_results=True,
                 endpointing=stt_endpointing_ms(config.stt_temperature),
                 model="nova-2",
                 language=stt_language,
