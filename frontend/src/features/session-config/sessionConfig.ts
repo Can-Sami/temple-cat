@@ -4,7 +4,7 @@
  * live speaker labels, so we start with sensible Turkish defaults in one click.
  */
 /** Diarization engine (customer-facing names; mapping is internal). */
-export type DiarizationEngine = "freya1" | "freya2";
+export type DiarizationEngine = "freya1" | "freya2" | "freya3";
 /** Freya 2 responsiveness preset → endpoint latency config. */
 export type DiarizationProfile = "fast" | "balanced" | "accurate";
 

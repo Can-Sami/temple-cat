@@ -55,12 +55,15 @@ from pipecat.processors.frameworks.rtvi import RTVIObserver, RTVIProcessor
 from pipecat.runner.types import DailyRunnerArguments
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.turns.user_start import MinWordsUserTurnStartStrategy, VADUserTurnStartStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from app.models.config import SessionConfig
 from app.services.diarization_processor import DiarizationProcessor
+from app.services.speechmatics_diarization import SpeechmaticsDiarizationProcessor
 from app.services.nvidia_diarization import (
     NvidiaAudioCapture,
     NvidiaDiarSession,
@@ -171,18 +174,32 @@ def build_voice_pipeline_task(
 
     engine = config.diarization_engine
 
-    stt = DeepgramSTTService(
-        api_key=os.environ["DEEPGRAM_API_KEY"],
-        sample_rate=AUDIO_IN_HZ,
-        settings=DeepgramSTTService.Settings(
-            # Deepgram diarization only powers Freya 1; Freya 2 uses the external model.
-            diarize=(engine == "freya1"),
-            endpointing=stt_endpointing_ms(config.stt_temperature),
-            # Turkish transcription. nova-2 supports Turkish + diarization.
-            model="nova-2",
-            language="tr",
-        ),
-    )
+    if engine == "freya3":
+        # Freya 3 = Speechmatics streaming STT, which does transcription AND
+        # speaker diarization in one service (Turkish). The speaker label rides
+        # on each final TranscriptionFrame.user_id (e.g. "S1"); the matching
+        # SpeechmaticsDiarizationProcessor maps it to a 0-based speaker index.
+        stt = SpeechmaticsSTTService(
+            api_key=os.environ["SPEECHMATICS_API_KEY"],
+            sample_rate=AUDIO_IN_HZ,
+            settings=SpeechmaticsSTTService.Settings(
+                language=Language.TR,
+                enable_diarization=True,
+            ),
+        )
+    else:
+        stt = DeepgramSTTService(
+            api_key=os.environ["DEEPGRAM_API_KEY"],
+            sample_rate=AUDIO_IN_HZ,
+            settings=DeepgramSTTService.Settings(
+                # Deepgram diarization only powers Freya 1; Freya 2 uses the external model.
+                diarize=(engine == "freya1"),
+                endpointing=stt_endpointing_ms(config.stt_temperature),
+                # Turkish transcription. nova-2 supports Turkish + diarization.
+                model="nova-2",
+                language="tr",
+            ),
+        )
 
     llm = OpenAILLMService(
         base_url=os.environ.get("LLM_URL", "https://kkb-llm.freyavoice.ai/v1"),
@@ -229,7 +246,9 @@ def build_voice_pipeline_task(
     help_center_rag = HelpCenterRAGProcessor()
 
     # Diarization engine: Freya 1 = Deepgram (speaker rides on the transcript);
-    # Freya 2 = external /diarize model (capture audio before STT, emit after).
+    # Freya 2 = external /diarize model (capture audio before STT, emit after);
+    # Freya 3 = Speechmatics streaming STT with in-stream diarization (no Deepgram,
+    # no audio capture — the speaker rides on the Speechmatics transcript).
     if engine == "freya2":
         nvidia_session = NvidiaDiarSession(sample_rate=AUDIO_IN_HZ)
         user_chain: list[Any] = [
@@ -245,6 +264,15 @@ def build_voice_pipeline_task(
             context_aggregator.user(),
         ]
         _logger.info("diarization engine=freya2 profile=%s", config.diarization_profile)
+    elif engine == "freya3":
+        user_chain = [
+            transport.input(),
+            rtvi,
+            stt,
+            SpeechmaticsDiarizationProcessor(),
+            context_aggregator.user(),
+        ]
+        _logger.info("diarization engine=freya3 (speechmatics)")
     else:
         user_chain = [
             transport.input(),

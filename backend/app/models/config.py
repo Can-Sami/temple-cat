@@ -14,7 +14,8 @@ class SessionConfig(BaseModel):
     interruptibility_percentage: conint(strict=True, ge=0, le=100) = Field(...)
 
     # Diarization engine selection (customer-facing names): "freya1" = Deepgram
-    # streaming, "freya2" = external /diarize model. profile tunes Freya 2 latency.
+    # streaming, "freya2" = external /diarize model, "freya3" = Speechmatics
+    # streaming STT with in-stream diarization. profile tunes Freya 2 latency.
     diarization_engine: constr(strict=True, min_length=1) = Field(default="freya1")
     diarization_profile: constr(strict=True, min_length=1) = Field(default="accurate")
 

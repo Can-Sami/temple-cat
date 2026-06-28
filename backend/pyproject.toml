@@ -15,9 +15,14 @@ dependencies = [
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
     # Pinned to match backend/requirements-docker.lock (voice pipeline is sensitive to upstream drift).
-    "pipecat-ai[daily,deepgram,openai,cartesia,silero,tracing]==1.1.0",
+    # `speechmatics` extra powers Freya 3 (Speechmatics streaming STT + diarization);
+    # it pulls `speechmatics-voice[smart]~=0.2.8` (which depends on `speechmatics-rt`).
+    "pipecat-ai[daily,deepgram,openai,cartesia,silero,tracing,speechmatics]==1.1.0",
     # Pipecat's tracing extra does not ship OTLP exporters; Jaeger needs gRPC export.
     "opentelemetry-exporter-otlp-proto-grpc>=1.33.0,<2",
+    # Speechmatics' pipecat STT module imports `dotenv` at module load; not a base
+    # pipecat dep, so pin it explicitly for Freya 3.
+    "python-dotenv>=1.0.0,<2",
     "aiohttp>=3.9",
     "aiofiles>=24.1",
 ]

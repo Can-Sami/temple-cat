@@ -60,6 +60,7 @@ Pygments==2.20.0
 pyloudnorm==0.2.0
 pytest==9.0.3
 pytest-asyncio==1.3.0
+python-dotenv==1.2.2
 PyYAML==6.0.3
 regex==2026.4.4
 resampy==0.4.3
@@ -67,6 +68,12 @@ rich==15.0.0
 safetensors==0.7.0
 scipy==1.17.1
 setuptools==82.0.1
+# Freya 3 = Speechmatics streaming STT + diarization (pipecat `speechmatics` extra).
+# Non-`[smart]` to avoid the smart extra's `transformers<5` cap clashing with the
+# pinned `transformers==5.7.0`; onnxruntime/transformers/certifi (the smart deps)
+# are already locked above, and Freya 3 uses pipecat-side (EXTERNAL) turn detection.
+speechmatics-rt==1.1.0
+speechmatics-voice==0.2.8
 shellingham==1.5.4
 sniffio==1.3.1
 soxr==1.0.0

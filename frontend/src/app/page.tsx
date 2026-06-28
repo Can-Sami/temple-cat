@@ -168,6 +168,7 @@ function DiarizationConsole() {
             options={[
               { value: "freya1", label: "Freya 1" },
               { value: "freya2", label: "Freya 2" },
+              { value: "freya3", label: "Freya 3" },
             ]}
           />
           {engine === "freya2" ? (
