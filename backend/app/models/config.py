@@ -13,11 +13,10 @@ class SessionConfig(BaseModel):
     tts_temperature: confloat(strict=True, ge=0.0, le=1.0) = Field(...)
     interruptibility_percentage: conint(strict=True, ge=0, le=100) = Field(...)
 
-    # Diarization engine selection (customer-facing names): "freya1" = Deepgram
-    # streaming, "freya2" = external /diarize model, "freya3" = Speechmatics
-    # streaming STT with in-stream diarization. profile tunes Freya 2 latency.
+    # Diarization engine (customer-facing names): "freya1" = Speechmatics full
+    # assistant (Turkish), "freya2" = Deepgram diarization-only (English),
+    # "freya3" = Speechmatics diarization-only (English).
     diarization_engine: constr(strict=True, min_length=1) = Field(default="freya1")
-    diarization_profile: constr(strict=True, min_length=1) = Field(default="accurate")
 
     # Pydantic: forbid extra/unknown fields
     class Config:

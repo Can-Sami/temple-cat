@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 
 import { SessionControlPanel } from "../features/session-control/SessionControlPanel";
 import { SpeakerBadge } from "../features/dashboard/SpeakerBadge";
+import { SpeakerIndicator } from "../features/dashboard/SpeakerIndicator";
 import { TranscriptPanel } from "../features/dashboard/TranscriptPanel";
 import {
   appendTurn,
@@ -22,7 +23,6 @@ import {
 import {
   DEFAULT_SESSION_CONFIG,
   type DiarizationEngine,
-  type DiarizationProfile,
 } from "../features/session-config/sessionConfig";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
@@ -74,7 +74,16 @@ function DiarizationConsole() {
   /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
   const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
   const [engine, setEngine] = useState<DiarizationEngine>("freya1");
-  const [profile, setProfile] = useState<DiarizationProfile>("accurate");
+
+  // freya1 = full Speechmatics assistant (transcript); freya2/3 = diarization-only.
+  const isDiarOnly = engine !== "freya1";
+  const engineCaption =
+    engine === "freya1"
+      ? "Full voice assistant · Turkish"
+      : engine === "freya2"
+        ? "Deepgram · diarization only"
+        : "Diarization only";
+  const indicatorProvider = engine === "freya2" ? "Deepgram" : undefined;
 
   // The one event that matters: each finalized turn carries its speaker label.
   // Unwrap defensively in case the client hands us the RTVI envelope.
@@ -100,7 +109,6 @@ function DiarizationConsole() {
       const creds = await createSession.mutateAsync({
         ...DEFAULT_SESSION_CONFIG,
         diarization_engine: engine,
-        diarization_profile: profile,
       });
       try {
         await client?.connect({ url: creds.room_url, token: creds.token });
@@ -154,35 +162,30 @@ function DiarizationConsole() {
       {sessionActive ? (
         <div className="flex animate-fade-up flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <SpeakerBadge speaker={transcript.currentSpeaker} />
+            {isDiarOnly ? <span /> : <SpeakerBadge speaker={transcript.currentSpeaker} />}
             <SessionControlPanel isActive onStart={() => {}} onStop={handleStop} />
           </div>
-          <TranscriptPanel turns={transcript.turns} />
+          {isDiarOnly ? (
+            <SpeakerIndicator speaker={transcript.currentSpeaker} provider={indicatorProvider} />
+          ) : (
+            <TranscriptPanel turns={transcript.turns} />
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-5">
-          <Segmented
-            label="Diarization engine"
-            value={engine}
-            onChange={setEngine}
-            options={[
-              { value: "freya1", label: "Freya 1" },
-              { value: "freya2", label: "Freya 2" },
-              { value: "freya3", label: "Freya 3" },
-            ]}
-          />
-          {engine === "freya2" ? (
+          <div className="flex flex-col gap-2">
             <Segmented
-              label="Responsiveness"
-              value={profile}
-              onChange={setProfile}
+              label="Diarization engine"
+              value={engine}
+              onChange={setEngine}
               options={[
-                { value: "fast", label: "Fast" },
-                { value: "balanced", label: "Balanced" },
-                { value: "accurate", label: "Accurate" },
+                { value: "freya1", label: "Freya 1" },
+                { value: "freya2", label: "Freya 2" },
+                { value: "freya3", label: "Freya 3" },
               ]}
             />
-          ) : null}
+            <span className="font-mono text-xs text-muted-foreground">{engineCaption}</span>
+          </div>
           <div>
             <Button
               type="button"

@@ -64,11 +64,6 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from app.models.config import SessionConfig
 from app.services.diarization_processor import DiarizationProcessor
 from app.services.speechmatics_diarization import SpeechmaticsDiarizationProcessor
-from app.services.nvidia_diarization import (
-    NvidiaAudioCapture,
-    NvidiaDiarSession,
-    NvidiaSpeakerEmitter,
-)
 from app.services.freya_tts import FreyaTTSService
 from app.services.help_center_rag_processor import HelpCenterRAGProcessor
 from app.services.interruptibility import build_vad_tuning, interruptibility_min_words_threshold
@@ -173,126 +168,97 @@ def build_voice_pipeline_task(
     )
 
     engine = config.diarization_engine
+    # Lineup:
+    #   freya1 = Speechmatics, full voice assistant (Turkish; transcribes + diarizes)
+    #   freya2 = Deepgram, diarization-only (English; no LLM/TTS — just "who's speaking")
+    #   freya3 = Speechmatics, diarization-only (English; no LLM/TTS)
+    diar_only = engine in ("freya2", "freya3")
+    provider = "deepgram" if engine == "freya2" else "speechmatics"
+    stt_language = "tr" if engine == "freya1" else "en"
 
-    if engine == "freya3":
-        # Freya 3 = Speechmatics streaming STT, which does transcription AND
-        # speaker diarization in one service (Turkish). The speaker label rides
-        # on each final TranscriptionFrame.user_id (e.g. "S1"); the matching
-        # SpeechmaticsDiarizationProcessor maps it to a 0-based speaker index.
-        stt = SpeechmaticsSTTService(
+    if provider == "speechmatics":
+        stt: Any = SpeechmaticsSTTService(
             api_key=os.environ["SPEECHMATICS_API_KEY"],
             sample_rate=AUDIO_IN_HZ,
             settings=SpeechmaticsSTTService.Settings(
-                language=Language.TR,
+                language=Language.TR if stt_language == "tr" else Language.EN,
                 enable_diarization=True,
             ),
         )
+        diar_processor: Any = SpeechmaticsDiarizationProcessor()
     else:
         stt = DeepgramSTTService(
             api_key=os.environ["DEEPGRAM_API_KEY"],
             sample_rate=AUDIO_IN_HZ,
             settings=DeepgramSTTService.Settings(
-                # Deepgram diarization only powers Freya 1; Freya 2 uses the external model.
-                diarize=(engine == "freya1"),
+                diarize=True,
                 endpointing=stt_endpointing_ms(config.stt_temperature),
-                # Turkish transcription. nova-2 supports Turkish + diarization.
                 model="nova-2",
-                language="tr",
+                language=stt_language,
             ),
         )
-
-    llm = OpenAILLMService(
-        base_url=os.environ.get("LLM_URL", "https://kkb-llm.freyavoice.ai/v1"),
-        api_key=os.environ.get("LLM_API_KEY", "dummy"),
-        settings=OpenAILLMService.Settings(
-            model=os.environ.get("LLM_MODEL", "google/gemma-4-31B-it"),
-            # Force Turkish replies regardless of the per-session prompt (TTS voice
-            # "leyla" is Turkish, so English replies would be mispronounced).
-            system_instruction=f"{config.system_prompt}\n\nHer zaman ve yalnızca Türkçe yanıt ver.",
-            temperature=config.llm_temperature,
-            max_completion_tokens=config.llm_max_tokens,
-        ),
-    )
-
-    tts = FreyaTTSService(
-        api_key=os.environ.get("TTS_API_KEY") or os.environ.get("FREYA_MODEL_API_KEY", ""),
-        base_url=os.environ["TTS_URL"],
-        voice=os.environ.get("TTS_VOICE_ID", "leyla"),
-        model=os.environ.get("TTS_MODEL", "tts-1"),
-        # KKB TTS (OpenAI-compatible tts-1) emits 24 kHz PCM; declaring 16 kHz
-        # played it 1.5x slow. Match the transport rate → correct speed, no resample.
-        sample_rate=AUDIO_OUT_HZ,
-        speed=config.tts_speed,
-    )
-
-    context = LLMContext(messages=[])
-
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(
-            user_turn_strategies=turn_strategies,
-            vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                    stop_secs=vad.stop_secs,
-                    start_secs=vad.start_secs,
-                    confidence=vad.confidence,
-                    min_volume=vad.min_volume,
-                ),
-            ),
-        ),
-    )
+        diar_processor = DiarizationProcessor()
 
     rtvi = RTVIProcessor()
-    help_center_rag = HelpCenterRAGProcessor()
 
-    # Diarization engine: Freya 1 = Deepgram (speaker rides on the transcript);
-    # Freya 2 = external /diarize model (capture audio before STT, emit after);
-    # Freya 3 = Speechmatics streaming STT with in-stream diarization (no Deepgram,
-    # no audio capture — the speaker rides on the Speechmatics transcript).
-    if engine == "freya2":
-        nvidia_session = NvidiaDiarSession(sample_rate=AUDIO_IN_HZ)
-        user_chain: list[Any] = [
-            transport.input(),
-            rtvi,
-            NvidiaAudioCapture(nvidia_session),
-            stt,
-            NvidiaSpeakerEmitter(
-                nvidia_session,
-                url=os.environ.get("NVIDIA_DIARIZE_URL", ""),
-                profile=config.diarization_profile,
-            ),
-            context_aggregator.user(),
-        ]
-        _logger.info("diarization engine=freya2 profile=%s", config.diarization_profile)
-    elif engine == "freya3":
-        user_chain = [
-            transport.input(),
-            rtvi,
-            stt,
-            SpeechmaticsDiarizationProcessor(),
-            context_aggregator.user(),
-        ]
-        _logger.info("diarization engine=freya3 (speechmatics)")
+    if diar_only:
+        # Listen-only: STT + diarization emit "who's speaking" over RTVI. No LLM/TTS,
+        # no assistant — the bot just listens and reports the active speaker.
+        _logger.info("engine=%s provider=%s diar-only lang=%s", engine, provider, stt_language)
+        pipeline = Pipeline([transport.input(), rtvi, stt, diar_processor])
     else:
-        user_chain = [
-            transport.input(),
-            rtvi,
-            stt,
-            DiarizationProcessor(),
-            context_aggregator.user(),
-        ]
-        _logger.info("diarization engine=freya1 (deepgram)")
-
-    pipeline = Pipeline(
-        [
-            *user_chain,
-            help_center_rag,
-            llm,
-            tts,
-            transport.output(),
-            context_aggregator.assistant(),
-        ]
-    )
+        # Freya 1 = Speechmatics full voice assistant: STT+diarize -> LLM -> TTS (Turkish).
+        _logger.info("engine=freya1 provider=speechmatics full-assistant lang=tr")
+        llm = OpenAILLMService(
+            base_url=os.environ.get("LLM_URL", "https://kkb-llm.freyavoice.ai/v1"),
+            api_key=os.environ.get("LLM_API_KEY", "dummy"),
+            settings=OpenAILLMService.Settings(
+                model=os.environ.get("LLM_MODEL", "google/gemma-4-31B-it"),
+                # Force Turkish replies (TTS voice "leyla" is Turkish).
+                system_instruction=f"{config.system_prompt}\n\nHer zaman ve yalnızca Türkçe yanıt ver.",
+                temperature=config.llm_temperature,
+                max_completion_tokens=config.llm_max_tokens,
+            ),
+        )
+        tts = FreyaTTSService(
+            api_key=os.environ.get("TTS_API_KEY") or os.environ.get("FREYA_MODEL_API_KEY", ""),
+            base_url=os.environ["TTS_URL"],
+            voice=os.environ.get("TTS_VOICE_ID", "leyla"),
+            model=os.environ.get("TTS_MODEL", "tts-1"),
+            # KKB TTS emits 24 kHz; declaring 16 kHz played it 1.5x slow. Match transport rate.
+            sample_rate=AUDIO_OUT_HZ,
+            speed=config.tts_speed,
+        )
+        context = LLMContext(messages=[])
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=LLMUserAggregatorParams(
+                user_turn_strategies=turn_strategies,
+                vad_analyzer=SileroVADAnalyzer(
+                    params=VADParams(
+                        stop_secs=vad.stop_secs,
+                        start_secs=vad.start_secs,
+                        confidence=vad.confidence,
+                        min_volume=vad.min_volume,
+                    ),
+                ),
+            ),
+        )
+        help_center_rag = HelpCenterRAGProcessor()
+        pipeline = Pipeline(
+            [
+                transport.input(),
+                rtvi,
+                stt,
+                diar_processor,
+                context_aggregator.user(),
+                help_center_rag,
+                llm,
+                tts,
+                transport.output(),
+                context_aggregator.assistant(),
+            ]
+        )
 
     task_kw: dict[str, Any] = {
         "pipeline": pipeline,

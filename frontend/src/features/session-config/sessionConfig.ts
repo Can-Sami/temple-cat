@@ -5,8 +5,6 @@
  */
 /** Diarization engine (customer-facing names; mapping is internal). */
 export type DiarizationEngine = "freya1" | "freya2" | "freya3";
-/** Freya 2 responsiveness preset → endpoint latency config. */
-export type DiarizationProfile = "fast" | "balanced" | "accurate";
 
 export interface SessionConfigPayload {
   system_prompt: string;
@@ -18,7 +16,6 @@ export interface SessionConfigPayload {
   tts_temperature: number;
   interruptibility_percentage: number;
   diarization_engine: DiarizationEngine;
-  diarization_profile: DiarizationProfile;
 }
 
 export const DEFAULT_SESSION_CONFIG: SessionConfigPayload = {
@@ -31,5 +28,4 @@ export const DEFAULT_SESSION_CONFIG: SessionConfigPayload = {
   tts_temperature: 0.3,
   interruptibility_percentage: 70,
   diarization_engine: "freya1",
-  diarization_profile: "accurate",
 };
