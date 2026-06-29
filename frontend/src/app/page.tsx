@@ -12,7 +12,6 @@ import { useEffect, useState } from "react";
 
 import { SessionControlPanel } from "../features/session-control/SessionControlPanel";
 import { SpeakerBadge } from "../features/dashboard/SpeakerBadge";
-import { SpeakerIndicator } from "../features/dashboard/SpeakerIndicator";
 import { TranscriptPanel } from "../features/dashboard/TranscriptPanel";
 import {
   appendTurn,
@@ -30,43 +29,6 @@ import { useVoiceSession } from "@/hooks/useVoiceSession";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-
-function Segmented<T extends string>({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  readonly label: string;
-  readonly value: T;
-  readonly onChange: (v: T) => void;
-  readonly options: ReadonlyArray<{ value: T; label: string }>;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <div className="inline-flex w-fit rounded-lg border border-border bg-secondary/40 p-0.5">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={value === o.value}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
-              value === o.value
-                ? "bg-brand text-brand-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function DiarizationConsole() {
   const client = usePipecatClient();
@@ -75,19 +37,11 @@ function DiarizationConsole() {
   const [transportError, setTransportError] = useState<string | null>(null);
   /** Diarized transcript (Speaker 1 / Speaker 2 …) from backend server-messages. */
   const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript);
-  const [engine, setEngine] = useState<DiarizationEngine>("freya1");
   /** True for the whole start flow (create session + connect), so the button stays "Starting…". */
   const [starting, setStarting] = useState(false);
 
-  // freya1 = full Speechmatics assistant (transcript); freya2/3 = diarization-only.
-  const isDiarOnly = engine !== "freya1";
-  const engineCaption =
-    engine === "freya1"
-      ? "Full voice assistant · Turkish"
-      : engine === "freya2"
-        ? "Deepgram · diarization only"
-        : "Diarization only";
-  const indicatorProvider = engine === "freya2" ? "Deepgram" : undefined;
+  // Single engine: Freya 1 = full Speechmatics voice assistant (Turkish, transcribes).
+  const engine: DiarizationEngine = "freya1";
 
   // Two signals, both carrying a speaker label (unwrap defensively in case the
   // client hands us the RTVI envelope):
@@ -187,41 +141,22 @@ function DiarizationConsole() {
       {sessionActive ? (
         <div className="flex animate-fade-up flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {isDiarOnly ? <span /> : <SpeakerBadge speaker={transcript.currentSpeaker} />}
+            <SpeakerBadge speaker={transcript.currentSpeaker} />
             <SessionControlPanel isActive onStart={() => {}} onStop={handleStop} />
           </div>
-          {isDiarOnly ? (
-            <SpeakerIndicator speaker={transcript.currentSpeaker} provider={indicatorProvider} />
-          ) : (
-            <TranscriptPanel turns={transcript.turns} />
-          )}
+          <TranscriptPanel turns={transcript.turns} />
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Segmented
-              label="Diarization engine"
-              value={engine}
-              onChange={setEngine}
-              options={[
-                { value: "freya1", label: "Freya 1" },
-                { value: "freya2", label: "Freya 2" },
-                { value: "freya3", label: "Freya 3" },
-              ]}
-            />
-            <span className="font-mono text-xs text-muted-foreground">{engineCaption}</span>
-          </div>
-          <div>
-            <Button
-              type="button"
-              onClick={handleStart}
-              disabled={starting}
-              aria-busy={starting}
-              className="h-11 px-6 text-base"
-            >
-              {starting ? "Starting…" : "Start session"}
-            </Button>
-          </div>
+        <div>
+          <Button
+            type="button"
+            onClick={handleStart}
+            disabled={starting}
+            aria-busy={starting}
+            className="h-11 px-6 text-base"
+          >
+            {starting ? "Starting…" : "Start session"}
+          </Button>
         </div>
       )}
 
